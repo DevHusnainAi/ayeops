@@ -1,0 +1,24 @@
+# Real demo cluster for INFRA=docker. The relay runs one compose project per session (docker compose -p iv-<id>),
+# each with its own network and ephemeral localhost ports, and acts as the CD system: it sets *_VERSION and
+# recreates services.
+
+x-service: &service
+  image: python:3.13-slim
+  command: ["python", "-u", "/app/svc.py"]
+  volumes: ["./svc.py:/app/svc.py:ro"]
+  restart: always
+  init: true  # PID 1 forwards SIGTERM, so recreates take milliseconds, not the stop timeout
+
+services:
+  auth-service:
+    <<: *service
+    environment: {ROLE: auth, VERSION: "${AUTH_VERSION:-v2.14.0}"}
+    ports: ["127.0.0.1::8080"]
+  api-gateway:
+    <<: *service
+    environment: {ROLE: gateway, VERSION: "${GATEWAY_VERSION:-v5.3.0}"}
+    ports: ["127.0.0.1::8080"]
+  billing-worker:
+    <<: *service
+    environment: {ROLE: billing, VERSION: "${BILLING_VERSION:-v1.9.2}", WORKERS: "${BILLING_WORKERS:-1}"}
+    ports: ["127.0.0.1::8080"]
