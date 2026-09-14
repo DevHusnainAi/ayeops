@@ -1,4 +1,4 @@
-# IncidentVoice
+# AyeOps
 
 **A voice-authorized incident commander for production infrastructure.**
 Built on the [AssemblyAI Voice Agent API](https://www.assemblyai.com/docs/voice-agents/voice-agent-api).
@@ -26,7 +26,7 @@ unaccountable**:
 This is why AI ops tools stall in procurement. They don't stall because they're slow. They stall because
 **nobody can prove who authorized what.** An LLM that can restart production is an audit finding.
 
-IncidentVoice is built as the answer to that: not a faster hand, but a **sober second party** that does
+AyeOps is built as the answer to that: not a faster hand, but a **sober second party** that does
 the thinking you can't do at 3am, makes fat-fingering production structurally impossible, and produces the
 record nobody would otherwise write.
 
@@ -176,11 +176,11 @@ last voiced mic frame — the honest method, not the flattering one.*
 | **ChatOps** | Slack bots, Backstage actions | Execute real operations from chat | Identity = an API token. No liveness, no anti-impersonation, no proof a *human* acted. |
 | **Voice agent demos** | The typical hackathon entry | Natural conversation | Nothing irreversible ever happens, so no authorization model is needed — or built. |
 
-**Where IncidentVoice sits:** it is the only one of these where the authorization channel *is* the voice,
+**Where AyeOps sits:** it is the only one of these where the authorization channel *is* the voice,
 and the executing party is *not* the model.
 
 Everyone else is racing to make the agent **faster**. The bottleneck in production isn't speed — it's that
-no one will grant an LLM write access to infrastructure. IncidentVoice is built around that constraint
+no one will grant an LLM write access to infrastructure. AyeOps is built around that constraint
 instead of against it: reads are autonomous, writes require a live human voice reading a secret the model
 cannot access, and every change leaves a signed record with the audio attached.
 
