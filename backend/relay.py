@@ -1,4 +1,4 @@
-"""IncidentVoice relay: browser mic <-> FastAPI <-> AssemblyAI Voice Agent API.
+"""AyeOps relay: browser mic <-> FastAPI <-> AssemblyAI Voice Agent API.
 
 Browser protocol (ws://host:8000/ws):
   browser -> relay : binary frames of raw PCM16 LE, 24 kHz mono (~50 ms each), plus two demo controls:
@@ -28,6 +28,7 @@ from pathlib import Path
 import uvicorn
 import websockets
 from fastapi import FastAPI, WebSocket
+from fastapi.staticfiles import StaticFiles
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError
 
 from cluster import ACTIONS, DEPENDENTS, SERVICES, DockerCluster, SimCluster, level
@@ -36,7 +37,8 @@ AAI_URL = os.environ.get("AAI_URL", "wss://agents.assemblyai.com/v1/ws")
 SESSIONS_URL = AAI_URL.replace("wss://", "https://").removesuffix("/ws") + "/sessions"
 API_KEY = os.environ["ASSEMBLYAI_API_KEY"]
 INFRA = os.environ.get("INFRA", "sim")
-ALLOWED_ORIGINS = set(os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(","))
+ALLOWED_ORIGINS = set(os.environ.get(
+    "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000").split(","))
 MAX_SESSION_S = int(os.environ.get("MAX_SESSION_S", "900"))  # caps spend if the public demo is left open
 INCIDENT_DIR = Path(os.environ.get("INCIDENT_DIR", Path(__file__).parent / "incidents"))
 RESUME_WINDOW_S = 30  # server keeps a dropped session this long
@@ -110,7 +112,7 @@ TOOLS = [
     },
 ]
 
-SYSTEM_PROMPT = """You are IncidentVoice, the incident commander for production, talking to the on-call engineer over voice.
+SYSTEM_PROMPT = """You are AyeOps (pronounced "aye ops"), the incident commander for production, talking to the on-call engineer over voice.
 Be calm, terse and decisive: one short sentence per turn, two at most. Plain speech, no lists or markdown.
 Never read out version numbers, IDs or exact figures unless asked; say "the last deploy" or "almost every request failing".
 Never guess system state; every claim comes from a tool result.
@@ -134,7 +136,7 @@ SESSION_UPDATE = {
     "type": "session.update",
     "session": {
         "system_prompt": SYSTEM_PROMPT,
-        "greeting": "IncidentVoice online and watching production. I'll page you the moment anything breaks.",
+        "greeting": "Aye Ops online and watching production. I'll page you the moment anything breaks.",  # spelled for TTS
         "tools": TOOLS,
         "input": {
             # Service names plus every authorization code word, so codes transcribe reliably.
@@ -150,6 +152,16 @@ BACKGROUND = set()  # evidence downloads outlive their session
 
 def hms(ts):
     return time.strftime("%H:%M:%S", time.localtime(ts))
+
+
+def sent_detail(msg):
+    """One line for the dashboard's API panel. Never prompt text: after a resolution it can quote a used code."""
+    t = msg["type"]
+    if t == "session.update":
+        return "sets " + ", ".join(msg["session"])
+    if t == "reply.create":
+        return msg["instructions"][:100]
+    return msg.get("call_id") or msg.get("session_id") or ""
 
 
 def fetch(url, auth=False):  # pre-signed artifact URLs must not see our key
@@ -184,6 +196,7 @@ class Session:
         self.cluster = DockerCluster() if INFRA == "docker" else SimCluster()
         self.up = None  # current AssemblyAI connection; replaced on reconnect
         self.session_id = None
+        self.session_ids = []  # every AssemblyAI session this tab used; a refused resume splits the recording
         self.resume_token = None  # signed credential from session.ready
         self.resuming = False  # the current connection opened with session.resume
         self.session_ready = False
@@ -231,6 +244,11 @@ class Session:
         if self.up:
             with contextlib.suppress(ConnectionClosed):
                 await self.up.send(json.dumps(msg))
+                await self.mirror(msg)
+
+    async def mirror(self, msg):
+        """Show what we sent AssemblyAI in the dashboard's API panel; the browser only sees what comes back."""
+        await self.emit({"type": "relay.sent", "message": msg["type"], "detail": sent_detail(msg)})
 
     async def set_phase(self, phase):
         self.phase = phase
@@ -346,8 +364,8 @@ class Session:
             f"# Incident report {self.session_id}", "",
             f"- **Detected** {hms(self.incident_at)}, **recovered** {hms(time.time())}, **time to recover** {mttr} s",
             *(f"- **Voice-authorized change:** {c}" for c in changes),
-            f"- **Evidence:** AssemblyAI session `{self.session_id}`; the two-channel recording (operator left, "
-            "agent right) and the turn timeline are saved next to this file.",
+            f"- **Evidence:** AssemblyAI session(s) {', '.join(f'`{s}`' for s in self.session_ids)}; each two-channel "
+            "recording (operator left, agent right) and turn timeline is saved next to this file.",
             "", "## Timeline", "", "| time | event | detail |", "|---|---|---|", *rows, ""])
 
     # ---- AssemblyAI side ----
@@ -364,7 +382,9 @@ class Session:
                     open_timeout=5, close_timeout=2,
                 ) as up:
                     self.up, self.resuming = up, bool(self.session_id)
-                    await up.send(json.dumps(self.opening()))
+                    opening = self.opening()
+                    await up.send(json.dumps(opening))
+                    await self.mirror(opening)
                     async for raw in up:
                         await self.on_upstream(raw)
                 return  # clean 1000 close: session is over
@@ -394,7 +414,7 @@ class Session:
         if not self.incident_at:
             return SESSION_UPDATE
         # Resume refused mid-incident (it was, in every variant tried live): incident state and authorizations live
-        # here, so a new session rebuilt from our timeline carries on. No greeting: "IncidentVoice online" would
+        # here, so a new session rebuilt from our timeline carries on. No greeting: "Aye Ops online" would
         # be absurd mid-rollback.
         session = {k: v for k, v in SESSION_UPDATE["session"].items() if k != "greeting"}
         return {"type": "session.update",
@@ -416,6 +436,8 @@ class Session:
         elif t == "session.ready":
             fresh = ev["session_id"] != self.session_id
             self.session_id, self.resume_token = ev["session_id"], ev.get("resume_token")
+            if self.session_id not in self.session_ids:
+                self.session_ids.append(self.session_id)
             self.session_ready, self.dropped_at, self.agent_speaking, self.resuming = True, None, False, False
             self.last_turn_event = "reply.done"  # idle; also flushes results that finished while we were offline
             self.expect_reply = fresh and not self.incident_at  # only a first session opens with the greeting
@@ -424,6 +446,9 @@ class Session:
                 self.mark("link", "session resumed with context intact" if status == "resumed"
                           else "resume refused; new session briefed from the incident timeline")
             await self.emit({"type": "relay.status", "upstream": status, "session_id": self.session_id})
+            if status == "recovered":  # a briefed session has no greeting; without this the operator hears silence
+                self.say_queue.insert(0, "In one short sentence, tell the operator the voice link dropped and you are "
+                                         "back, then say what we are waiting for.")
             await self.flush_results()
             await self.flush_say()
         elif t == "reply.started":
@@ -487,6 +512,7 @@ class Session:
                 self.ready_results.insert(0, msg)  # resend after session.ready
                 return
             self.expect_reply = True  # the result triggers the agent's next reply
+            await self.mirror(msg)
 
     # ---- tools ----
 
@@ -550,15 +576,16 @@ class Session:
             p = self.pending = {"service": service, "action": action, "change": change, "code": code, "at": time.monotonic()}
             self.mark("gate", f"proposed {action} {service} ({change}); awaiting the operator's authorization code")
         await self.emit({"type": "relay.gate", "state": "awaiting", "service": service, "action": action,
-                         "change": change, "code": p["code"]})
+                         "change": change, "affected": DEPENDENTS.get(service, []), "code": p["code"],
+                         "ttl_s": GATE_TTL_S - round(time.monotonic() - p["at"])})
         return {
             "status": "awaiting_authorization",
             "plan": f"roll {service} back to its previous version" if action == "rollback"
             else f"{action.replace('_', ' ')} {service}",
             "affected": DEPENDENTS.get(service, []),
-            "instruction": "Nothing has changed. In under fifteen words, name the plan and ask the operator to read "
-            "the authorization code on their screen. You do not know the code. When they read it, say only "
-            "\"Verifying.\"; the system checks it, not you.",
+            "instruction": "Nothing has changed. In under fifteen words, propose the plan (\"I propose rolling back…\", "
+            "never \"I will\") and ask the operator to read the authorization code on their screen. You do not "
+            "know the code. When they read it, say only \"Verifying.\"; the system checks it, not you.",
         }
 
     async def on_user_transcript(self, text):
@@ -626,10 +653,11 @@ class Session:
                 await self.cluster.close()
             with contextlib.suppress(Exception):
                 await self.ws.close()
-            if self.incident_at and self.session_id:
-                task = asyncio.create_task(save_evidence(self.session_id))
-                BACKGROUND.add(task)
-                task.add_done_callback(BACKGROUND.discard)
+            if self.incident_at:
+                for sid in self.session_ids:  # every session the incident touched
+                    task = asyncio.create_task(save_evidence(sid))
+                    BACKGROUND.add(task)
+                    task.add_done_callback(BACKGROUND.discard)
 
 
 app = FastAPI()
@@ -642,6 +670,11 @@ async def ws_endpoint(ws: WebSocket):
         return
     await ws.accept()
     await Session(ws).run()
+
+
+WEB_DIR = Path(__file__).parent.parent / "web" / "out"
+if WEB_DIR.is_dir():  # the exported dashboard: same origin as /ws, so one URL, and HTTPS covers the mic too
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
 
 if __name__ == "__main__":
