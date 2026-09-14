@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+/* Palette: a night control-room board. Red, amber, green and blue mean service status and nothing else; the
+   buff "paper" is reserved for the clearance slip, the one thing an operator must read. */
+@theme {
+  --color-board: #0f1519;
+  --color-panel: #151d23;
+  --color-rule: #26323b;
+  --color-ink: #dce3e8;
+  --color-muted: #83919b;
+  --color-agent: #a9c1d9;
+  --color-paper: #ece4cf;
+  --color-paper-ink: #1c1f21;
+  --color-stamp: #1f6a47;
+  --color-void: #9b2c2c;
+  --color-down: #ef4d4f;
+  --color-degraded: #f2a531;
+  --color-healthy: #3ccf87;
+  --color-remediating: #6ab1ff;
+
+  --animate-slip-in: slip-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-stamp: stamp 420ms cubic-bezier(0.3, 1.4, 0.5, 1) both;
+  --animate-flash: flash 1.2s ease-out;
+
+  @keyframes slip-in {
+    from { opacity: 0; transform: translateX(28px) rotate(1.5deg); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes stamp {
+    from { opacity: 0; transform: scale(1.8) rotate(-14deg); }
+    to { opacity: 1; transform: scale(1) rotate(-8deg); }
+  }
+  @keyframes flash {
+    from { background-color: color-mix(in oklab, currentColor 30%, transparent); }
+    to { background-color: transparent; }
+  }
+}
+
+@theme inline {
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-atkinson-mono), ui-monospace, "SFMono-Regular", monospace;
+  --font-display: var(--font-shoulders), "Arial Narrow", sans-serif;
+}
+
+html {
+  color-scheme: dark;
+  background: var(--color-board);
+}
+
+body {
+  background: var(--color-board);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-paper);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
