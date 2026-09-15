@@ -17,7 +17,7 @@ export type Service = {
 };
 export type Phase = "starting" | "monitoring" | "triage" | "mitigation" | "resolved";
 export type LinkState = "idle" | "connecting" | "connected" | "reconnecting" | "resumed" | "recovered" | "closed";
-export type Line = { id: number; who: "operator" | "agent" | "tool"; text: string; callId?: string; interrupted?: boolean };
+export type Evidence = { commit: string; message: string; files: string[]; diff: string; crash_line?: string };
 export type Gate = {
   state: "awaiting" | "approved" | "rejected" | "executing" | "done";
   service: string;
@@ -25,13 +25,40 @@ export type Gate = {
   change?: string;
   affected?: string[];
   code?: string;
+  evidence?: Evidence | null;
   heard?: string;
   expiresAt?: number;
   approvedAt?: number;
   result?: { status?: string };
 };
+export type AgentRequest = {
+  state: "pending" | "approved" | "denied" | "expired";
+  agent: string;
+  action: string;
+  target: string;
+  command: string;
+  reason: string;
+  code?: string;
+  expiresAt?: number;
+};
 export type ApiEvent = { id: number; at: number; dir: "in" | "out"; type: string; detail: string };
-export type LogLine = { id: number; service: string; level: string; line: string };
+export type LogLine = { id: number; service: string; line: string; level: string };
+// F10a: the most recent past incident on a service, surfaced when a new one opens on the same service.
+export type Precedent = { service: string; action: string; root_cause: string; mttr_s: number; resolved_at: number };
+
+// The unified Activity feed: every event an operator would want to see in one chronological order, instead of
+// speech, tool calls, phase changes, authorization and alerts each fighting for their own panel.
+export type FeedItem =
+  | { id: number; at: number; kind: "speech"; who: "operator" | "agent"; text: string; interrupted?: boolean }
+  | { id: number; at: number; kind: "tool"; text: string; callId?: string }
+  | { id: number; at: number; kind: "phase"; phase: Phase }
+  | { id: number; at: number; kind: "gate"; gate: Gate }
+  | { id: number; at: number; kind: "agent_request"; req: AgentRequest }
+  | { id: number; at: number; kind: "flag"; service: string; line: string }
+  | { id: number; at: number; kind: "precedent"; precedent: Precedent }
+  | { id: number; at: number; kind: "link"; text: string; tone: "warn" | "ok" | "error" };
+// Plain Omit<Union, K> collapses to only the keys shared across every member; this distributes it per-variant.
+type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 export type RelayState = {
   started: boolean;
@@ -45,9 +72,11 @@ export type RelayState = {
   ttr?: number;
   services: Record<string, Service>;
   logs: LogLine[];
-  lines: Line[];
+  feed: FeedItem[];
   live: { who: "operator" | "agent"; text: string } | null;
   gate: Gate | null;
+  agentRequest?: AgentRequest | null;
+  precedent?: Precedent | null;
   progress?: string;
   latency?: number;
   events: ApiEvent[];
@@ -65,7 +94,7 @@ type Action =
   | { kind: "event"; ev: Ev; at: number };
 
 const initial: RelayState = {
-  started: false, link: "idle", mic: "off", phase: "starting", services: {}, logs: [], lines: [], live: null,
+  started: false, link: "idle", mic: "off", phase: "starting", services: {}, logs: [], feed: [], live: null,
   gate: null, events: [], agentSpeaking: false, operatorSpeaking: false,
 };
 
@@ -75,7 +104,10 @@ const TOOL: Record<string, string> = {
   propose_remediation: "Proposal",
 };
 
-let seq = 0;
+// Seeded from the clock, not 0: a dev hot-reload re-runs this module (resetting a plain counter) while the
+// useReducer state that already holds old ids survives it, producing a collision like "two children with key 4".
+// Seeding from Date.now() makes a fresh module instance's ids start far above anything already in state.
+let seq = Date.now();
 function last<T>(xs: T[], n: number) {
   return xs.length > n ? xs.slice(xs.length - n) : xs;
 }
@@ -103,6 +135,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
   const t: string = ev.type;
   const api = (dir: "in" | "out", type: string, detail = "") =>
     last([...s.events, { id: ++seq, at, dir, type, detail }], 80);
+  const feed = (item: DistOmit<FeedItem, "id" | "at">): FeedItem[] => last([...s.feed, { ...item, id: ++seq, at } as FeedItem], 300);
 
   switch (t) {
     case "infra.state":
@@ -113,60 +146,83 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       return {
         ...s,
         phase: ev.phase,
-        incidentAt: ev.phase === "triage" && !s.incidentAt ? at : s.incidentAt,
+        // A guard of !s.incidentAt would only ever capture the first incident in a session -- a second one
+        // (the relay now allows reopening from "resolved") needs its own clock, so key off the transition
+        // into triage instead of whether one was ever recorded.
+        incidentAt: ev.phase === "triage" && s.phase !== "triage" ? at : s.incidentAt,
         resolvedAt: ev.phase === "resolved" ? at : s.resolvedAt,
+        // A precedent from the last incident must not linger into one that doesn't have its own -- cleared
+        // here and re-set only if relay.precedent actually arrives for this one.
+        precedent: ev.phase === "triage" && s.phase !== "triage" ? null : s.precedent,
+        feed: ev.phase === s.phase ? s.feed : feed({ kind: "phase", phase: ev.phase }),
       };
     case "relay.postmortem":
       return { ...s, report: ev.markdown, ttr: ev.time_to_recover_s };
     case "relay.gate": {
+      let gate: Gate;
       if (ev.state === "awaiting") {
-        return {
-          ...s,
-          progress: undefined,
-          gate: {
-            state: "awaiting", service: ev.service, action: ev.action, change: ev.change, affected: ev.affected,
-            code: ev.code, expiresAt: at + (ev.ttl_s ?? 120) * 1000,
-          },
+        gate = {
+          state: "awaiting", service: ev.service, action: ev.action, change: ev.change, affected: ev.affected,
+          code: ev.code, evidence: ev.evidence, expiresAt: at + (ev.ttl_s ?? 120) * 1000,
         };
+      } else {
+        const g = s.gate && s.gate.service === ev.service && s.gate.action === ev.action ? s.gate : null;
+        const base: Gate = g ?? { state: ev.state, service: ev.service, action: ev.action };
+        gate = { ...base, state: ev.state, heard: ev.heard ?? base.heard,
+                approvedAt: ev.state === "approved" ? at : base.approvedAt, result: ev.result ?? base.result };
       }
-      const g = s.gate && s.gate.service === ev.service && s.gate.action === ev.action ? s.gate : null;
-      const base: Gate = g ?? { state: ev.state, service: ev.service, action: ev.action };
-      return {
-        ...s,
-        gate: {
-          ...base,
-          state: ev.state,
-          heard: ev.heard ?? base.heard,
-          approvedAt: ev.state === "approved" ? at : base.approvedAt,
-          result: ev.result ?? base.result,
-        },
-      };
+      const prior = [...s.feed].reverse().find((f) => f.kind === "gate") as (FeedItem & { kind: "gate" }) | undefined;
+      const dup = prior && prior.gate.code === gate.code && prior.gate.state === gate.state;
+      return { ...s, progress: ev.state === "awaiting" ? undefined : s.progress, gate, feed: dup ? s.feed : feed({ kind: "gate", gate }) };
     }
     case "relay.progress":
       return { ...s, progress: ev.text };
+    case "relay.flag":
+      return { ...s, feed: feed({ kind: "flag", service: ev.service, line: ev.line }) };
+    case "relay.precedent": {
+      const precedent: Precedent = {
+        service: ev.service, action: ev.action, root_cause: ev.root_cause, mttr_s: ev.mttr_s, resolved_at: ev.resolved_at,
+      };
+      return { ...s, precedent, feed: feed({ kind: "precedent", precedent }) };
+    }
+    case "relay.agent_request": {
+      const agentRequest: AgentRequest =
+        ev.state === "pending"
+          ? { state: "pending", agent: ev.agent, action: ev.action, target: ev.target, command: ev.command,
+              reason: ev.reason, code: ev.code, expiresAt: at + (ev.ttl_s ?? 120) * 1000 }
+          : s.agentRequest
+            ? { ...s.agentRequest, state: ev.state }
+            : { state: ev.state, agent: "", action: "", target: "", command: "", reason: "" };
+      const prior = [...s.feed].reverse().find((f) => f.kind === "agent_request") as (FeedItem & { kind: "agent_request" }) | undefined;
+      const dup = prior && prior.req.code === agentRequest.code && prior.req.state === agentRequest.state;
+      return { ...s, agentRequest, feed: dup ? s.feed : feed({ kind: "agent_request", req: agentRequest }) };
+    }
     case "relay.tool":
       if (ev.status === "running") {
-        return { ...s, lines: last([...s.lines, { id: ++seq, who: "tool", text: toolText(ev.name, ev.arguments), callId: ev.call_id }], 80) };
+        return { ...s, feed: feed({ kind: "tool", text: toolText(ev.name, ev.arguments), callId: ev.call_id }) };
       }
       return {
         ...s,
-        lines: s.lines.map((l) =>
-          l.callId === ev.call_id
-            ? { ...l, text: `${l.text} · ${ev.result?.error ? "error" : ev.result?.status ?? "ok"} · ${ev.ms} ms` }
-            : l,
+        feed: s.feed.map((f) =>
+          f.kind === "tool" && f.callId === ev.call_id
+            ? { ...f, text: `${f.text} · ${ev.result?.error ? "error" : ev.result?.status ?? "ok"} · ${ev.ms} ms` }
+            : f,
         ),
       };
     case "relay.metrics":
       return { ...s, latency: ev.turn_latency_ms };
     case "relay.status": {
       const link = ev.upstream as LinkState;
-      if (link === "reconnecting") return { ...s, link, dropAt: s.dropAt ?? at };
+      if (link === "reconnecting") return { ...s, link, dropAt: s.dropAt ?? at, feed: feed({ kind: "link", text: "Voice link lost — reconnecting", tone: "warn" }) };
       const recovery =
         s.dropAt && (link === "resumed" || link === "recovered") ? { ms: at - s.dropAt, kind: link, at } : s.recovery;
-      return { ...s, link, dropAt: undefined, recovery };
+      const note = recovery && recovery.at === at
+        ? feed({ kind: "link", text: `Voice link restored in ${(recovery.ms / 1000).toFixed(1)}s (${recovery.kind})`, tone: "ok" })
+        : s.feed;
+      return { ...s, link, dropAt: undefined, recovery, feed: note };
     }
     case "relay.error":
-      return { ...s, error: ev.message };
+      return { ...s, error: ev.message, feed: feed({ kind: "link", text: `Session stopped: ${ev.message}`, tone: "error" }) };
     case "relay.sent":
       return { ...s, events: api("out", ev.message, ev.detail) };
 
@@ -180,14 +236,11 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       return { ...s, live: { who: "agent", text: d.startsWith(prev) ? d : `${prev} ${d}`.trim() } };
     }
     case "transcript.user":
-      return {
-        ...s, live: null, events: api("in", t, clip(textOf(ev))),
-        lines: last([...s.lines, { id: ++seq, who: "operator", text: textOf(ev) }], 80),
-      };
+      return { ...s, live: null, events: api("in", t, clip(textOf(ev))), feed: feed({ kind: "speech", who: "operator", text: textOf(ev) }) };
     case "transcript.agent":
       return {
         ...s, live: null, events: api("in", t, clip(textOf(ev))),
-        lines: last([...s.lines, { id: ++seq, who: "agent", text: textOf(ev).trim(), interrupted: ev.interrupted }], 80),
+        feed: feed({ kind: "speech", who: "agent", text: textOf(ev).trim(), interrupted: ev.interrupted }),
       };
     case "input.speech.started":
       return { ...s, operatorSpeaking: true, events: api("in", t) };
@@ -214,7 +267,8 @@ function relayUrl() {
 
 type Audio = {
   ws?: WebSocket;
-  ctx?: AudioContext;
+  ctx?: AudioContext; // mic capture, native rate -- pcm-worklet.js resamples it, deliberately not this context
+  playCtx?: AudioContext; // agent playback, pinned to 24kHz to match the PCM exactly
   out?: GainNode;
   analyser?: AnalyserNode;
   stream?: MediaStream;
@@ -222,11 +276,12 @@ type Audio = {
   playhead: number;
   micLevel: number;
   wave?: Float32Array<ArrayBuffer>;
+  opened: boolean; // F10e: did the WS ever actually open -- distinguishes "never reached the relay" from a drop
 };
 
 export function useRelay() {
   const [state, dispatch] = useReducer(reduce, initial);
-  const a = useRef<Audio>({ sources: new Set(), playhead: 0, micLevel: 0 });
+  const a = useRef<Audio>({ sources: new Set(), playhead: 0, micLevel: 0, opened: false });
 
   const flush = useCallback(() => {
     // Barge-in: drop queued agent audio so the operator never hears stale speech.
@@ -238,33 +293,42 @@ export function useRelay() {
 
   const play = useCallback((b64: string) => {
     const r = a.current;
-    if (!r.ctx || !r.out) return;
+    if (!r.playCtx || !r.out) return;
     const bin = atob(b64);
     const pcm = new Int16Array(bin.length >> 1);
     for (let i = 0; i < pcm.length; i++) pcm[i] = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
-    const buf = r.ctx.createBuffer(1, pcm.length, 24000);
+    // playCtx runs at 24000Hz, matching this buffer exactly -- no implicit per-chunk resampling. Without that
+    // match, each of these small buffers gets resampled independently by the browser with no phase continuity
+    // across chunk boundaries, which is what streamed clicks/graininess in Web Audio almost always trace to.
+    const buf = r.playCtx.createBuffer(1, pcm.length, 24000);
     const ch = buf.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
-    const src = r.ctx.createBufferSource();
+    const src = r.playCtx.createBufferSource();
     src.buffer = buf;
     src.connect(r.out);
-    const at = Math.max(r.ctx.currentTime + 0.03, r.playhead); // back to back; the small lead absorbs jitter
+    const at = Math.max(r.playCtx.currentTime + 0.03, r.playhead); // back to back; the small lead absorbs jitter
     src.start(at);
     r.playhead = at + buf.duration;
     r.sources.add(src);
     src.onended = () => r.sources.delete(src);
   }, []);
 
-  const start = useCallback(async (withMic: boolean) => {
+  const start = useCallback(async (withMic: boolean, autopilot = false) => {
     const r = a.current;
     if (r.ws) return;
-    const ctx = new AudioContext(); // created on the click, so autoplay rules allow playback
+    // Two contexts, both created on this click so autoplay rules allow both: ctx captures the mic at the
+    // device's native rate (pcm-worklet.js resamples it -- forcing this context to 24000Hz breaks echo
+    // cancellation on Firefox/Safari, per AssemblyAI's troubleshooting guide). playCtx exists purely to play
+    // the agent's 24kHz PCM back with no resampling at all.
+    const ctx = new AudioContext();
+    const playCtx = new AudioContext({ sampleRate: 24000 });
     r.ctx = ctx;
-    r.out = ctx.createGain();
-    r.analyser = ctx.createAnalyser();
+    r.playCtx = playCtx;
+    r.out = playCtx.createGain();
+    r.analyser = playCtx.createAnalyser();
     r.analyser.fftSize = 1024;
     r.out.connect(r.analyser);
-    r.analyser.connect(ctx.destination);
+    r.analyser.connect(playCtx.destination);
 
     // Without a mic (declined, blocked, or chosen) the page runs in watch mode: the incident still runs and the
     // agent still talks, but nobody can authorize by voice.
@@ -292,9 +356,27 @@ export function useRelay() {
 
     const ws = new WebSocket(relayUrl());
     r.ws = ws;
+    // ponytail: autopilot's synthesized readback plays through the same channel as the agent's voice rather than
+    // a dedicated operator-synth graph -- fine since nothing else is ever "speaking" in an unattended run.
+    if (autopilot) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "demo.autopilot" })), { once: true });
+    ws.onopen = () => {
+      r.opened = true;
+    };
+    ws.onerror = () => {
+      // A refused/unreachable connection fires error then close with no other signal at all -- distinguish it
+      // from a normal drop (which the existing "reconnecting"/"closed" states already explain) so the operator
+      // isn't left staring at "Connecting" forever with no idea why.
+      if (!r.opened) {
+        dispatch({
+          kind: "event",
+          ev: { type: "relay.error", message: `Can't reach the relay at ${relayUrl()}. Check that it's running and reachable.` },
+          at: Date.now(),
+        });
+      }
+    };
     ws.onmessage = (m) => {
       const ev = JSON.parse(m.data);
-      if (ev.type === "reply.audio") return play(ev.data);
+      if (ev.type === "reply.audio" || ev.type === "autopilot.audio") return play(ev.data);
       if (ev.type === "input.speech.started" || (ev.type === "reply.done" && ev.status === "interrupted")) flush();
       dispatch({ kind: "event", ev, at: Date.now() });
     };
@@ -307,6 +389,7 @@ export function useRelay() {
       r.ws?.close();
       r.stream?.getTracks().forEach((t) => t.stop());
       r.ctx?.close();
+      r.playCtx?.close();
     },
     [],
   );
@@ -322,7 +405,10 @@ export function useRelay() {
     return { operator: r.micLevel, agent };
   }, []);
 
-  const control = useCallback((type: "demo.fault" | "demo.drop") => a.current.ws?.send(JSON.stringify({ type })), []);
+  const control = useCallback(
+    (type: "demo.fault" | "demo.drop" | "demo.inject") => a.current.ws?.send(JSON.stringify({ type })),
+    [],
+  );
 
   return {
     state,
@@ -330,5 +416,6 @@ export function useRelay() {
     levels,
     shipBadDeploy: () => control("demo.fault"),
     cutLink: () => control("demo.drop"),
+    injectPrompt: () => control("demo.inject"),
   };
 }

@@ -1,70 +1,199 @@
 "use client";
 
-import { useRef } from "react";
+import { useState } from "react";
 import { BRAND } from "@/lib/brand";
 import { useRelay } from "@/lib/relay";
 import {
-  ApiPanel, BTN, BTN_QUIET, LinkBanner, LogTape, Panel, ReportDialog, Resolution, Slip, Speaking, Strips, TopBar, Transcript, Waveform,
+  ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
+  LiveAgentRequest, LiveClearance, LogTape, Panel, PrecedentCard, ReportDrawer, Speaking, Strips, Waveform,
+  WatchingHero,
 } from "./components";
 
-function Welcome({ onStart }: { onStart: (withMic: boolean) => void }) {
+function HeroWaveform() {
+  const bars = [0.3, 0.7, 0.45, 0.9, 0.55, 0.35, 0.8, 0.5, 0.65, 0.4, 0.85, 0.3, 0.6, 0.75, 0.4, 0.55];
   return (
-    <main className="grid min-h-dvh place-items-center px-6">
-      <div className="max-w-xl">
-        <p className="text-[11px] font-semibold tracking-[0.22em] text-muted uppercase">Voice incident command</p>
-        <h1 className="mt-2 font-display text-[clamp(3.5rem,10vw,7rem)] leading-[0.9] font-extrabold uppercase">{BRAND}</h1>
-        <p className="mt-5 text-lg leading-relaxed text-ink/85">
-          It pages you when production breaks, finds the cause on its own, and changes nothing until you authorize the
-          fix with your voice, by reading a code the AI never sees.
-        </p>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <button type="button" className={`${BTN} px-5 py-2.5 text-base`} onClick={() => onStart(true)}>
-            Start session
-          </button>
-          <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-base`} onClick={() => onStart(false)}>
-            Watch without a microphone
-          </button>
+    <div className="flex h-8 items-center gap-[3px]" aria-hidden>
+      {bars.map((h, i) => (
+        <span
+          key={i}
+          className="w-[3px] rounded-full bg-ink/25"
+          style={{
+            height: `${h * 100}%`,
+            animation: `hero-wave 1.6s ease-in-out ${i * 0.07}s infinite`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// A static, self-contained mock of the live clearance card -- no session required, so the very first thing a
+// visitor sees is the product's actual differentiator, not a promise of it.
+function HeroPreview() {
+  return (
+    <div className="relative w-full max-w-sm">
+      <div aria-hidden className="absolute -inset-6 -z-10 rounded-[2rem] bg-accent/10 blur-2xl" />
+      <div className="animate-rise rounded-xl border-2 border-accent/50 bg-panel/90 p-5 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.7)] backdrop-blur">
+        <div className="flex items-center gap-2 font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase">
+          <span className="relative flex size-2.5">
+            <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-accent" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
+          </span>
+          Awaiting voice authorization
         </div>
-        <p className="mt-3 text-sm text-muted">Start session uses your microphone. Wear headphones so the agent doesn’t hear itself.</p>
+        <p className="mt-3 text-[16px] font-semibold text-ink">Roll back auth-service</p>
+        <p className="mt-0.5 text-[12.5px] text-muted">v2.14.1 → v2.14.0 · affects api-gateway, billing-worker</p>
+        <div className="mt-4"><CodeWords words={["LIMA", "CHARLIE"]} /></div>
+        <p className="mt-3 font-mono text-[12.5px] text-muted">
+          Say: <span className="text-ink">&ldquo;Roll back auth-service, Lima Charlie.&rdquo;</span>
+        </p>
+        <div aria-hidden className="mt-4 h-1 overflow-hidden rounded-full bg-line">
+          <div className="h-full w-2/3 bg-accent" />
+        </div>
+        <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+          <HeroWaveform />
+          <span className="font-mono text-[11px] text-muted-2">0.9s turn latency</span>
+        </div>
+      </div>
+      <style jsx>{`
+        @keyframes hero-wave {
+          0%, 100% { transform: scaleY(0.4); }
+          50% { transform: scaleY(1); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean) => void }) {
+  return (
+    <main className="relative min-h-dvh overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(60rem 40rem at 82% 8%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 60%)," +
+            "radial-gradient(46rem 30rem at 8% 92%, color-mix(in oklab, var(--color-remediating) 8%, transparent), transparent 55%)",
+        }}
+      />
+      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-6 py-8 lg:px-10">
+        <header className="flex items-center gap-2.5">
+          <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
+            {BRAND}<span className="text-accent">.</span>
+          </span>
+        </header>
+
+        <div className="grid flex-1 items-center gap-16 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10">
+          <div>
+            <div className="mb-6 flex items-center gap-2.5">
+              <span aria-hidden className="size-1.5 rounded-full bg-healthy" />
+              <p className="font-mono text-[11px] font-medium tracking-[0.24em] text-muted uppercase">Voice incident command</p>
+            </div>
+            <h1 className="max-w-xl text-[clamp(2.6rem,5.5vw,4.2rem)] leading-[1.02] font-bold tracking-tight text-ink text-balance">
+              No AI touches production without a human&rsquo;s informed voice.
+            </h1>
+            <p className="mt-6 max-w-lg text-[1.08rem] leading-relaxed text-muted">
+              {BRAND} pages you when production breaks, finds the cause on its own, and changes nothing until you
+              authorize the fix — by reading a code the AI is never shown.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-3">
+              <button type="button" className={`${BTN} px-5 py-2.5 text-[14px]`} onClick={() => onStart(true)}>
+                Start session
+              </button>
+              <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-[14px]`} onClick={() => onStart(false, true)}>
+                Run the demo for me
+              </button>
+              <button
+                type="button"
+                className="px-1 py-2.5 text-[14px] text-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-muted"
+                onClick={() => onStart(false)}
+              >
+                Watch without a microphone
+              </button>
+            </div>
+            <p className="mt-5 max-w-lg text-[13px] text-muted-2">
+              Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. Run the
+              demo for me plays both sides of the incident unattended, no mic required.
+            </p>
+
+            <dl className="mt-14 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
+              {[
+                ["Blind", "The approval code never enters the model's context"],
+                ["Voiced", "A human reads the change back to prove they understood it"],
+                ["Logged", "Every authorization ships with a recording and a timeline"],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <dt className="font-mono text-[13px] font-semibold text-accent">{k}</dt>
+                  <dd className="mt-1 text-[12.5px] leading-snug text-muted">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          <div className="flex justify-center lg:justify-end">
+            <HeroPreview />
+          </div>
+        </div>
+
+        <footer className="border-t border-line py-5 font-mono text-[11px] tracking-[0.14em] text-muted-2 uppercase">
+          Built on the AssemblyAI Voice Agent API
+        </footer>
       </div>
     </main>
   );
 }
 
 export default function Home() {
-  const { state: s, start, levels, shipBadDeploy, cutLink } = useRelay();
-  const report = useRef<HTMLDialogElement>(null);
+  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt } = useRelay();
+  const [reportOpen, setReportOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   if (!s.started) return <Welcome onStart={start} />;
+
+  const liveGate = s.gate && (s.phase === "triage" || s.phase === "mitigation") ? s.gate : null;
+  const liveAgentRequest = s.agentRequest?.state === "pending" ? s.agentRequest : null;
+  const resting = !liveGate && !liveAgentRequest && (s.phase === "starting" || s.phase === "monitoring");
+
   return (
-    <main className="flex min-h-dvh flex-col lg:h-dvh">
-      <TopBar s={s} onFault={shipBadDeploy} onCut={cutLink} />
-      <LinkBanner s={s} />
-      <div className="grid flex-1 gap-4 p-4 lg:min-h-0 lg:grid-cols-12">
-        <div className="flex flex-col gap-4 lg:order-2 lg:col-span-7 lg:min-h-0">
-          <Slip gate={s.gate} progress={s.progress} mic={s.mic} />
-          {s.phase === "resolved" && s.ttr !== undefined && <Resolution ttr={s.ttr} onOpen={() => report.current?.showModal()} />}
-          <Panel title="Voice" aside={<Speaking s={s} />} className="min-h-72 lg:flex-1">
-            <div className="flex h-full flex-col">
-              <div className="border-b border-rule px-4 py-2">
-                <Waveform levels={levels} />
+    <main className="relative flex min-h-dvh flex-col lg:h-dvh">
+      <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} />
+      <DemoControls s={s} open={toolsOpen} onClose={() => setToolsOpen(false)} onFault={shipBadDeploy} onCut={cutLink} onInject={injectPrompt} />
+      <IncidentBar s={s} />
+      <LinkToast s={s} />
+
+      {resting ? (
+        <WatchingHero services={s.services} />
+      ) : (
+        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 lg:grid-cols-12 lg:overflow-visible lg:p-6">
+          <div className="flex flex-col gap-5 lg:col-span-4 lg:min-h-0">
+            <Panel title="Services">
+              <Strips services={s.services} />
+            </Panel>
+            <Panel title="Logs" className="lg:min-h-0 lg:flex-1">
+              <LogTape logs={s.logs} highlight={s.gate?.evidence?.crash_line} />
+            </Panel>
+          </div>
+
+          <div className="flex flex-col gap-5 lg:col-span-8 lg:min-h-0">
+            {s.precedent && <PrecedentCard precedent={s.precedent} />}
+            {liveGate && <LiveClearance gate={liveGate} mic={s.mic} />}
+            {liveAgentRequest && <LiveAgentRequest req={liveAgentRequest} />}
+            <Panel title="Activity" aside={<Speaking s={s} />} className="lg:min-h-0 lg:flex-1">
+              <div className="flex h-full flex-col">
+                <div className="px-4 pb-1">
+                  <Waveform levels={levels} />
+                </div>
+                <div className="min-h-0 flex-1">
+                  <ActivityFeed s={s} />
+                </div>
               </div>
-              <div className="min-h-0 flex-1">
-                <Transcript lines={s.lines} live={s.live} />
-              </div>
-            </div>
-          </Panel>
+            </Panel>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 lg:order-1 lg:col-span-5 lg:min-h-0">
-          <Panel title="Services">
-            <Strips services={s.services} />
-          </Panel>
-          <Panel title="Logs" className="min-h-64 lg:flex-1">
-            <LogTape logs={s.logs} />
-          </Panel>
-        </div>
-      </div>
+      )}
+
       <ApiPanel events={s.events} />
-      <ReportDialog report={s.report} dialog={report} />
+      <ReportDrawer s={s} open={reportOpen} onClose={() => setReportOpen(false)} />
     </main>
   );
 }

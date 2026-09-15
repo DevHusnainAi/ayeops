@@ -96,7 +96,7 @@ async def main():
                 utter("fix")
 
     def make_approval(code):
-        LINES["approve"] = speech(f"Authorize {code}.")
+        LINES["approve"] = speech(f"Roll back auth service, {code}.")  # F1: bare code no longer authorizes
 
     async def listen():
         async for raw in ws:

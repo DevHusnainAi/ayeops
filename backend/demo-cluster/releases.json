@@ -1,0 +1,11 @@
+{
+  "auth-service": {
+    "v2.14.1": {
+      "commit": "e4f5061",
+      "message": "Skip JWKS parse-error check to cut token-verify p50 latency",
+      "files": ["token/verify.go"],
+      "diff": "- key, err := jwk.ParseKey(raw)\n- if err != nil {\n-     return nil, fmt.Errorf(\"parse signing key: %w\", err)\n- }\n+ key, _ := jwk.ParseKey(raw)",
+      "crash_line": "token/verify.go:88"
+    }
+  }
+}

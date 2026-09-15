@@ -1,21 +1,22 @@
 import type { Metadata } from "next";
-import { Atkinson_Hyperlegible_Mono, Atkinson_Hyperlegible_Next, Big_Shoulders } from "next/font/google";
+import { Instrument_Sans, Martian_Mono } from "next/font/google";
 import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
-// Atkinson was designed for legibility; Big Shoulders is used only for codes and headline numbers.
-const sans = Atkinson_Hyperlegible_Next({ subsets: ["latin"], variable: "--font-atkinson" });
-const mono = Atkinson_Hyperlegible_Mono({ subsets: ["latin"], variable: "--font-atkinson-mono" });
-const display = Big_Shoulders({ subsets: ["latin"], axes: ["opsz"], variable: "--font-shoulders" });
+// Instrument Sans carries every human sentence: the pitch, the transcript, the copy. Martian Mono renders
+// everything the machine measures or the operator must read back exactly -- codes, versions, timestamps, log
+// lines. Two voices, on purpose: the product's whole premise is a human authorizing a machine precisely.
+const sans = Instrument_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-sans" });
+const mono = Martian_Mono({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: BRAND,
-  description: "Voice incident command. The agent investigates on its own; production changes wait for your voice.",
+  title: `${BRAND} — Voice-authorized incident command`,
+  description: "The agent investigates on its own; production changes wait for a code it will never see.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable} ${display.variable} antialiased`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable} antialiased`}>
       <body>{children}</body>
     </html>
   );

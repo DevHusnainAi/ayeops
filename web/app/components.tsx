@@ -1,37 +1,33 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
+import {
+  Activity, AlertTriangle, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, History, Lock, Mic,
+  MicOff, Radio, Rocket, Server, ScrollText, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
+} from "lucide-react";
 import { BRAND } from "@/lib/brand";
-import type { ApiEvent, Gate, Line, LinkState, LogLine, Phase, RelayState, Service, Status } from "@/lib/relay";
+import type {
+  AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, Phase, Precedent, RelayState, Service, Status,
+} from "@/lib/relay";
 
 export const BTN =
-  "rounded-sm bg-ink px-3 py-1.5 text-sm font-semibold text-board transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-35";
+  "rounded-md bg-accent px-3.5 py-2 text-[13px] font-semibold text-accent-ink transition-colors hover:bg-[color-mix(in_oklab,var(--color-accent)_88%,white)] disabled:cursor-not-allowed disabled:border disabled:border-line disabled:bg-transparent disabled:text-muted-2 disabled:hover:bg-transparent";
 export const BTN_QUIET =
-  "rounded-sm border border-rule px-3 py-1.5 text-sm text-ink transition-colors hover:border-muted disabled:cursor-not-allowed disabled:opacity-35";
+  "rounded-md border border-line px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:border-line-strong hover:bg-panel-2 disabled:cursor-not-allowed disabled:text-muted-2 disabled:hover:border-line disabled:hover:bg-transparent";
 
 // ITIC 2024: downtime costs over $300,000 an hour for more than 90% of mid-size and large enterprises.
 const COST_PER_MIN = 5000;
-const COST_NOTE = "At $5,000 a minute: the floor implied by ITIC's 2024 survey (over $300,000 an hour for 90%+ of mid-size and large enterprises).";
+const COST_SOURCE = "ITIC 2024";
 
-const STATUS: Record<Status, { label: string; bar: string; text: string }> = {
-  healthy: { label: "Healthy", bar: "bg-healthy", text: "text-healthy" },
-  degraded: { label: "Degraded", bar: "bg-degraded", text: "text-degraded" },
-  down: { label: "Down", bar: "bg-down", text: "text-down" },
-  remediating: { label: "Remediating", bar: "bg-remediating", text: "text-remediating" },
+const STATUS: Record<Status, { label: string; dot: string; text: string; bg: string }> = {
+  healthy: { label: "Healthy", dot: "bg-healthy", text: "text-healthy", bg: "bg-healthy/10" },
+  degraded: { label: "Degraded", dot: "bg-degraded", text: "text-degraded", bg: "bg-degraded/10" },
+  down: { label: "Down", dot: "bg-down", text: "text-down", bg: "bg-down/10" },
+  remediating: { label: "Remediating", dot: "bg-remediating", text: "text-remediating", bg: "bg-remediating/10" },
 };
-const PHASES: [Phase, string][] = [
-  ["monitoring", "Monitoring"],
-  ["triage", "Triage"],
-  ["mitigation", "Mitigation"],
-  ["resolved", "Resolved"],
-];
 const ACTION: Record<string, string> = { rollback: "Roll back", restart: "Restart", scale_up: "Scale up" };
-const GATE_TITLE: Record<Gate["state"], string> = {
-  awaiting: "Read aloud to authorize",
-  approved: "Authorized",
-  executing: "Authorized · running",
-  done: "Change complete",
-  rejected: "Cancelled",
+const PHASE_LABEL: Record<Phase, string> = {
+  starting: "Starting", monitoring: "Monitoring", triage: "Triage", mitigation: "Mitigation", resolved: "Resolved",
 };
 
 const pct = (x?: number) => (x === undefined ? "—" : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
@@ -47,11 +43,37 @@ export function useNow(every = 250) {
   return now;
 }
 
-export function Panel({ title, aside, className = "", children }: { title: string; aside?: ReactNode; className?: string; children: ReactNode }) {
+// A stable incident identifier, derived from detection time -- there's no incident database behind this, one
+// incident runs at a time, so the id only needs to be honest about that, not globally unique.
+function incidentId(incidentAt?: number) {
+  if (!incidentAt) return null;
+  const d = new Date(incidentAt);
+  return `INC-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export function StatusPill({ tone, label }: { tone: Status | "info"; label: string }) {
+  const st = tone === "info" ? { dot: "bg-accent", text: "text-accent", bg: "bg-accent/10" } : STATUS[tone];
   return (
-    <section className={`flex min-h-0 flex-col rounded-md border border-rule bg-panel/60 ${className}`}>
-      <header className="flex items-center justify-between gap-3 border-b border-rule px-4 py-2">
-        <h2 className="text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">{title}</h2>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-wide ${st.bg} ${st.text}`}>
+      <span aria-hidden className={`size-1.5 rounded-full ${st.dot}`} />
+      {label}
+    </span>
+  );
+}
+
+// No border, no icon-plus-caps-label header -- that pairing is the observability-widget signature (Grafana,
+// Datadog). Separation comes from a barely-there ring and a soft shadow for depth instead.
+export function Panel({
+  title, aside, accent = false, className = "", children,
+}: { title: string; aside?: ReactNode; accent?: boolean; className?: string; children: ReactNode }) {
+  return (
+    <section
+      className={`flex min-h-0 flex-col overflow-hidden rounded-2xl bg-panel/70 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.7)] ring-1 ${
+        accent ? "ring-accent/25" : "ring-white/[0.05]"
+      } ${className}`}
+    >
+      <header className="flex items-center justify-between gap-3 px-4 pt-4 pb-2">
+        <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-muted">{title}</h2>
         {aside}
       </header>
       <div className="min-h-0 flex-1">{children}</div>
@@ -59,142 +81,204 @@ export function Panel({ title, aside, className = "", children }: { title: strin
   );
 }
 
-function Readout({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <div title={title} className="leading-tight">
-      <p className="text-[10px] tracking-[0.16em] text-muted uppercase">{label}</p>
-      <p className="font-display text-2xl font-bold tabular-nums">{value}</p>
-    </div>
-  );
-}
-
 const LINK_TEXT: Record<LinkState, string> = {
-  idle: "Offline",
-  connecting: "Connecting",
-  connected: "Voice link live",
-  reconnecting: "Reconnecting",
-  resumed: "Voice link live",
-  recovered: "Voice link live",
-  closed: "Disconnected",
+  idle: "Offline", connecting: "Connecting", connected: "Voice link live", reconnecting: "Reconnecting",
+  resumed: "Voice link live", recovered: "Voice link live", closed: "Disconnected",
 };
 
 function LinkPill({ link, mic }: { link: LinkState; mic: RelayState["mic"] }) {
   const live = link === "connected" || link === "resumed" || link === "recovered";
+  const Icon = live || link === "reconnecting" ? Wifi : WifiOff;
   return (
-    <span className="flex items-center gap-2 text-xs text-muted">
-      <span aria-hidden className={`size-2 rounded-full ${live ? "bg-healthy" : link === "reconnecting" ? "bg-degraded" : "bg-muted"}`} />
-      {LINK_TEXT[link]}
-      {mic === "blocked" && <span className="rounded-sm border border-degraded/50 px-1.5 py-0.5 text-degraded">Mic blocked</span>}
-      {mic === "off" && <span className="rounded-sm border border-rule px-1.5 py-0.5">Watch only</span>}
+    <span className="flex items-center gap-3 text-[12px] text-muted">
+      <span className="flex items-center gap-1.5">
+        <Icon aria-hidden size={13} className={live ? "text-healthy" : link === "reconnecting" ? "text-degraded" : "text-muted-2"} />
+        {LINK_TEXT[link]}
+      </span>
+      {mic === "blocked" && (
+        <span className="flex items-center gap-1 rounded-full bg-degraded/10 px-2 py-0.5 text-degraded">
+          <MicOff aria-hidden size={11} /> Mic blocked
+        </span>
+      )}
+      {mic === "off" && (
+        <span className="flex items-center gap-1 rounded-full bg-panel-2 px-2 py-0.5 text-muted">
+          <MicOff aria-hidden size={11} /> Watch only
+        </span>
+      )}
+      {mic === "on" && (
+        <span className="flex items-center gap-1 rounded-full bg-healthy/10 px-2 py-0.5 text-healthy">
+          <Mic aria-hidden size={11} /> Mic live
+        </span>
+      )}
     </span>
   );
 }
 
-function Stepper({ phase }: { phase: Phase }) {
-  const at = PHASES.findIndex(([p]) => p === phase);
+// The persistent shell header: wordmark, link status, and the two things that open on top of everything else
+// (the report, once one exists, and the demo/testing controls) -- neither hides state, they float above it.
+export function AppHeader({
+  s, onOpenReport, onToggleTools, toolsOpen,
+}: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean }) {
   return (
-    <ol className="flex items-center text-[11px]" aria-label="Incident phase">
-      {PHASES.map(([p, label], i) => (
-        <li key={p} aria-current={i === at ? "step" : undefined} className="flex items-center">
-          {i > 0 && <span aria-hidden className="mx-1.5 h-px w-4 bg-rule" />}
-          <span
-            className={`rounded-sm px-2 py-1 tracking-[0.14em] uppercase ${
-              i === at ? "bg-panel text-ink ring-1 ring-rule" : i < at ? "text-muted" : "text-muted/50"
-            }`}
-          >
-            {label}
-          </span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-export function TopBar({ s, onFault, onCut }: { s: RelayState; onFault: () => void; onCut: () => void }) {
-  const now = useNow();
-  const secs = s.incidentAt ? Math.max(0, Math.floor(((s.resolvedAt ?? now) - s.incidentAt) / 1000)) : 0;
-  const live = s.link === "connected" || s.link === "resumed" || s.link === "recovered";
-  const active = s.phase === "triage" || s.phase === "mitigation";
-  return (
-    <header className="flex flex-wrap items-center gap-x-8 gap-y-3 border-b border-rule px-5 py-3">
-      <div className="flex items-center gap-4">
-        <span className="font-display text-2xl font-extrabold tracking-wide uppercase">{BRAND}</span>
-        <LinkPill link={s.link} mic={s.mic} />
-      </div>
-      <Stepper phase={s.phase} />
-      <div className="ml-auto flex flex-wrap items-center gap-6">
-        <Readout label="Incident clock" value={s.incidentAt ? `T+${clock(secs)}` : "—"} />
-        <Readout label="Est. cost at risk" value={s.incidentAt ? `$${Math.round((secs / 60) * COST_PER_MIN).toLocaleString("en-US")}` : "—"} title={COST_NOTE} />
-        <Readout label="Turn latency" value={s.latency ? `${(s.latency / 1000).toFixed(2)} s` : "—"} />
-        <div className="flex gap-2" role="group" aria-label="Demo controls">
-          <button type="button" className={BTN} disabled={!(s.phase === "monitoring" && live)} onClick={onFault}>
-            Ship a bad deploy
+    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-board/80 px-5 py-3 backdrop-blur">
+      <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
+        {BRAND}<span className="text-accent">.</span>
+      </span>
+      <span aria-hidden className="hidden h-5 w-px bg-line sm:block" />
+      <LinkPill link={s.link} mic={s.mic} />
+      {/* flex-wrap on the header lets this group drop to its own line instead of overflowing at narrow
+          widths (390px overflowed horizontally before this -- Report/History/tools had nowhere to go). */}
+      <div className="ml-auto flex items-center gap-2">
+        <a href="/history/" className={BTN_QUIET}>
+          <span className="flex items-center gap-1.5"><History aria-hidden size={13} /> <span className="hidden sm:inline">History</span></span>
+        </a>
+        {s.report && (
+          <button type="button" onClick={onOpenReport} className={BTN_QUIET}>
+            <span className="flex items-center gap-1.5"><FileText aria-hidden size={13} /> <span className="hidden sm:inline">Report</span></span>
           </button>
-          <button type="button" className={BTN_QUIET} disabled={!(active && live)} onClick={onCut}>
-            Cut voice link
-          </button>
-        </div>
+        )}
+        <button
+          type="button"
+          aria-pressed={toolsOpen}
+          onClick={onToggleTools}
+          className={`flex items-center gap-1.5 rounded-md border px-2.5 py-2 text-[12px] font-medium transition-colors ${
+            toolsOpen ? "border-line-strong bg-panel-2 text-ink" : "border-line text-muted-2 hover:border-line-strong hover:text-muted"
+          }`}
+          title="Demo and testing controls"
+        >
+          <SlidersHorizontal aria-hidden size={13} />
+        </button>
       </div>
     </header>
   );
 }
 
-export function LinkBanner({ s }: { s: RelayState }) {
-  const now = useNow(500);
-  let tone = "", text = "";
-  if (s.error) {
-    tone = "border-down/40 bg-down/10 text-down";
-    text = `The session stopped: ${s.error}. Reload the page to start a new one.`;
-  } else if (s.link === "reconnecting") {
-    tone = "border-degraded/40 bg-degraded/10 text-degraded";
-    text = "Voice link lost. Reconnecting…";
-  } else if (s.recovery && now - s.recovery.at < 10000) {
-    tone = "border-healthy/40 bg-healthy/10 text-healthy";
-    const how = s.recovery.kind === "resumed" ? "same session" : "new session briefed from the incident record";
-    text = `Voice link restored in ${(s.recovery.ms / 1000).toFixed(1)} s (${how}). Any pending authorization still works.`;
-  } else if (s.link === "closed") {
-    tone = "border-rule bg-panel text-muted";
-    text = "Session ended. Reload the page to start a new one.";
+// The incident identity bar: id, title, phase, the clock, and the (sourced, secondary) cost estimate. Shown
+// whenever there's something to report; collapses to a quiet "systems normal" line otherwise.
+export function IncidentBar({ s }: { s: RelayState }) {
+  const now = useNow();
+  const id = incidentId(s.incidentAt);
+  if (!id) {
+    return (
+      <div className="flex items-center gap-2 border-b border-line bg-panel/40 px-5 py-2 text-[13px] text-muted">
+        <span aria-hidden className="size-1.5 rounded-full bg-healthy" />
+        All services normal — watching for the next incident
+      </div>
+    );
   }
-  if (!text) return null;
+  const secs = Math.max(0, Math.floor(((s.resolvedAt ?? now) - s.incidentAt!) / 1000));
+  const cost = Math.round((secs / 60) * COST_PER_MIN);
+  const lead = Object.entries(s.services).find(([, v]) => v.status === "down")?.[0]
+    ?? Object.entries(s.services).find(([, v]) => v.status !== "healthy")?.[0];
   return (
-    <p role="status" className={`border-b px-5 py-2 text-sm ${tone}`}>
-      {text}
-    </p>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-panel/40 px-5 py-2.5">
+      <div className="flex items-center gap-2.5">
+        <span className="font-mono text-[13px] font-semibold text-ink">{id}</span>
+        <span className="text-[13px] text-muted">{lead ? `${lead} incident` : "Incident"}</span>
+      </div>
+      <StatusPill tone={s.phase === "resolved" ? "healthy" : s.phase === "mitigation" ? "remediating" : "down"} label={PHASE_LABEL[s.phase]} />
+      <span className="flex items-center gap-1.5 font-mono text-[13px] text-ink" title="Time since detection">
+        <Clock3 aria-hidden size={13} className="text-muted" />
+        T+{clock(secs)}
+      </span>
+      <span className="font-mono text-[12px] text-muted-2" title={`Illustrative only: ${COST_SOURCE}'s downtime-cost floor for 90%+ of mid/large firms, linearly applied.`}>
+        ~${cost.toLocaleString("en-US")} at risk <span className="opacity-70">· ${COST_PER_MIN.toLocaleString("en-US")}/min, {COST_SOURCE}</span>
+      </span>
+    </div>
+  );
+}
+
+// Demo & testing controls: a floating panel that drops down from the header trigger, never a banner competing
+// with the product for space. Styled like an internal dev tool, not a feature.
+export function DemoControls({
+  s, open, onClose, onFault, onCut, onInject,
+}: { s: RelayState; open: boolean; onClose: () => void; onFault: () => void; onCut: () => void; onInject: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDismiss(open, onClose, ref);
+  if (!open) return null;
+  const live = s.link === "connected" || s.link === "resumed" || s.link === "recovered";
+  const active = s.phase === "triage" || s.phase === "mitigation";
+  return (
+    <div ref={ref} className="animate-rise absolute top-14 right-5 z-20 w-72 rounded-lg border border-line-strong bg-panel-2 p-3 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)]">
+      <p className="mb-2 flex items-center gap-1.5 font-mono text-[10.5px] font-medium tracking-[0.1em] text-degraded uppercase">
+        <Bug aria-hidden size={12} /> Demo &amp; testing controls
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <button type="button" className={`${BTN_QUIET} justify-start`} disabled={!((s.phase === "monitoring" || s.phase === "resolved") && live)} onClick={onFault}>
+          <span className="flex items-center gap-2"><Rocket aria-hidden size={13} /> Ship a bad deploy</span>
+        </button>
+        <button type="button" className={`${BTN_QUIET} justify-start`} disabled={!(active && live)} onClick={onCut}>
+          <span className="flex items-center gap-2"><Unplug aria-hidden size={13} /> Cut voice link</span>
+        </button>
+        <button type="button" className={`${BTN_QUIET} justify-start`} disabled={!(active && live)} onClick={onInject}>
+          <span className="flex items-center gap-2"><Bug aria-hidden size={13} /> Poison a log line</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The at-rest state: no bordered widgets waiting for data, one calm focal point instead. Services demote to a
+// quiet inline strip -- confirmation, not a report -- and logs don't get a panel until there's something in it.
+export function WatchingHero({ services }: { services: Record<string, Service> }) {
+  const names = Object.keys(services);
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
+      <div className="relative flex size-24 items-center justify-center">
+        <span aria-hidden className="absolute inset-0 rounded-full bg-accent/10" style={{ animation: "pulse-ring 2.6s cubic-bezier(0.4,0,0.6,1) infinite" }} />
+        <span aria-hidden className="absolute inset-4 rounded-full bg-accent/10" style={{ animation: "pulse-ring 2.6s cubic-bezier(0.4,0,0.6,1) infinite 0.5s" }} />
+        <span aria-hidden className="relative size-2.5 rounded-full bg-accent shadow-[0_0_28px_6px_color-mix(in_oklab,var(--color-accent)_40%,transparent)]" />
+      </div>
+      <h1 className="mt-8 text-[1.65rem] font-semibold tracking-tight text-ink">Watching production</h1>
+      <p className="mt-2 max-w-sm text-[14.5px] leading-relaxed text-muted">
+        Nothing to report. The agent pages you the instant anything breaks, and starts triage on its own.
+      </p>
+      {names.length > 0 && (
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-2">
+          {names.map((name) => {
+            const st = STATUS[services[name].status] ?? STATUS.degraded;
+            return (
+              <span key={name} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-[12px] ${st.bg} ${st.text}`}>
+                <span aria-hidden className={`size-1.5 rounded-full ${st.dot}`} />
+                {name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
 export function Strips({ services }: { services: Record<string, Service> }) {
   const names = Object.keys(services);
-  if (!names.length) return <p className="px-4 py-6 text-sm text-muted">Waiting for the first health check…</p>;
+  if (!names.length) return <p className="grid h-full min-h-32 place-content-center px-4 text-center text-sm text-muted">Waiting for the first health check…</p>;
   return (
-    <ul className="space-y-2 p-3">
+    <ul className="space-y-2.5 p-3">
       {names.map((name) => {
         const svc = services[name];
         const st = STATUS[svc.status] ?? STATUS.degraded;
         return (
-          <li key={name} className="grid grid-cols-[6px_1fr] overflow-hidden rounded-sm bg-board/70 ring-1 ring-rule">
-            <span aria-hidden className={`${st.bar} transition-colors duration-700`} />
-            <div className="px-4 py-3">
+          <li key={name} className="grid grid-cols-[3px_1fr] overflow-hidden rounded-md bg-panel-2 ring-1 ring-line">
+            <span aria-hidden className={`${st.dot} transition-colors duration-700`} />
+            <div className="px-4 py-3.5">
               <div className="flex items-baseline justify-between gap-3">
-                <span className="font-mono text-[15px] text-ink">{name}</span>
-                <span key={svc.status} className={`animate-flash rounded-sm px-1.5 text-sm font-semibold tracking-[0.12em] uppercase ${st.text}`}>
-                  {st.label}
-                </span>
+                <span className="font-mono text-[14px] text-ink">{name}</span>
+                <StatusPill tone={svc.status} label={st.label} />
               </div>
-              <dl className="mt-2 grid grid-cols-3 divide-x divide-rule font-mono text-xs">
+              <dl className="mt-2.5 grid grid-cols-3 divide-x divide-line font-mono text-xs">
                 {[
                   ["version", svc.version],
                   ["errors", pct(svc.error_rate)],
                   ["p99", svc.p99_ms === undefined ? "—" : `${svc.p99_ms} ms`],
                 ].map(([k, v]) => (
-                  <div key={k} className="px-2 first:pl-0">
-                    <dt className="text-muted">{k}</dt>
-                    <dd className="text-ink tabular-nums">{v}</dd>
+                  <div key={k} className="px-2.5 first:pl-0">
+                    <dt className="text-[10px] tracking-[0.06em] text-muted-2 uppercase">{k}</dt>
+                    <dd className="mt-0.5 text-ink tabular-nums">{v}</dd>
                   </div>
                 ))}
               </dl>
-              <p className="mt-2 truncate text-xs text-muted">
+              <p className="mt-2.5 truncate text-xs text-muted">
                 Deployed {svc.last_deploy}
                 {svc.queue_depth ? ` · queue ${svc.queue_depth.toLocaleString("en-US")}` : ""}
                 {svc.container ? ` · ${svc.container}` : ""}
@@ -207,6 +291,26 @@ export function Strips({ services }: { services: Record<string, Service> }) {
   );
 }
 
+// F10e: Escape closes any dismissible overlay; an optional ref also closes it on an outside click (the
+// ReportDrawer's own backdrop button already covers that case, so it only needs the Escape half).
+function useDismiss(open: boolean, onClose: () => void, ref?: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onClick = (e: MouseEvent) => {
+      if (ref?.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    if (ref) document.addEventListener("mousedown", onClick);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (ref) document.removeEventListener("mousedown", onClick);
+    };
+  }, [open, onClose, ref]);
+}
+
 function useStickToBottom(dep: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -216,17 +320,20 @@ function useStickToBottom(dep: unknown) {
   return ref;
 }
 
-export function LogTape({ logs }: { logs: LogLine[] }) {
+export function LogTape({ logs, highlight }: { logs: LogLine[]; highlight?: string }) {
   const ref = useStickToBottom(logs);
   return (
-    <div ref={ref} role="log" aria-label="Service logs" className="h-full max-h-[60vh] overflow-y-auto py-2 font-mono text-[12px] leading-5 lg:max-h-none">
-      {!logs.length && <p className="px-4 text-muted">Logs from all three services stream here.</p>}
-      {logs.map((l) => (
-        <p key={l.id} className="grid grid-cols-[7.5rem_1fr] gap-3 px-4">
-          <span className="truncate text-muted">{l.service}</span>
-          <span className={l.level === "error" ? "text-down" : "text-ink/70"}>{l.line}</span>
-        </p>
-      ))}
+    <div ref={ref} role="log" aria-label="Service logs" className="h-full max-h-[50vh] overflow-y-auto py-2 font-mono text-[12px] leading-5 lg:max-h-none">
+      {!logs.length && <p className="grid h-full min-h-32 place-content-center px-4 text-center text-muted">Logs from all three services stream here.</p>}
+      {logs.map((l) => {
+        const matched = !!highlight && l.line.includes(highlight);
+        return (
+          <p key={l.id} className={`grid grid-cols-[7.5rem_1fr] gap-3 px-4 ${matched ? "bg-accent/10 ring-1 ring-inset ring-accent/40" : ""}`}>
+            <span className="truncate text-muted-2">{l.service}</span>
+            <span className={matched ? "text-accent" : l.level === "error" ? "text-down" : "text-ink/70"}>{l.line}</span>
+          </p>
+        );
+      })}
     </div>
   );
 }
@@ -239,7 +346,7 @@ export function Waveform({ levels }: { levels: () => { operator: number; agent: 
     if (!cv || !g) return;
     const css = getComputedStyle(document.documentElement);
     const opColor = css.getPropertyValue("--color-ink").trim();
-    const agColor = css.getPropertyValue("--color-agent").trim();
+    const agColor = css.getPropertyValue("--color-accent").trim();
     const op = new Array(96).fill(0);
     const ag = new Array(96).fill(0);
     let raf = 0;
@@ -264,205 +371,405 @@ export function Waveform({ levels }: { levels: () => { operator: number; agent: 
       g.clearRect(0, 0, w, h);
       const bw = w / op.length;
       const mid = h / 2;
-      // One channel, two voices: the operator above the line, the agent below.
+      g.fillStyle = `color-mix(in oklab, ${opColor} 14%, transparent)`;
+      g.fillRect(0, mid - 0.5, w, 1);
       for (let i = 0; i < op.length; i++) {
         const o = Math.min(1, op[i] * 1.8) * (mid - 3);
         const a = Math.min(1, ag[i] * 1.8) * (mid - 3);
-        g.fillStyle = opColor;
-        g.fillRect(i * bw, mid - o - 1, Math.max(1, bw - 2), o + 1);
-        g.fillStyle = agColor;
-        g.fillRect(i * bw, mid + 1, Math.max(1, bw - 2), a + 1);
+        if (o > 0.6) {
+          g.fillStyle = opColor;
+          g.fillRect(i * bw, mid - o - 1, Math.max(1, bw - 2), o + 1);
+        }
+        if (a > 0.6) {
+          g.fillStyle = agColor;
+          g.fillRect(i * bw, mid + 1, Math.max(1, bw - 2), a + 1);
+        }
       }
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
   }, [levels]);
-  return <canvas ref={ref} role="img" aria-label="Voice activity: you above the line, the agent below" className="h-20 w-full" />;
+  return <canvas ref={ref} role="img" aria-label="Voice activity: you above the line, the agent below" className="h-10 w-full" />;
 }
 
 export function Speaking({ s }: { s: RelayState }) {
-  const dot = (on: boolean, color: string) => <span aria-hidden className={`size-1.5 rounded-full ${on ? color : "bg-rule"}`} />;
+  const dot = (on: boolean, color: string) => <span aria-hidden className={`size-1.5 rounded-full ${on ? color : "bg-line"}`} />;
   return (
-    <span className="flex items-center gap-4 text-[11px] tracking-[0.14em] text-muted uppercase">
+    <span className="flex items-center gap-4 font-mono text-[10.5px] tracking-[0.08em] text-muted uppercase">
       <span className="flex items-center gap-1.5">{dot(s.operatorSpeaking, "bg-ink")}You</span>
-      <span className="flex items-center gap-1.5">{dot(s.agentSpeaking, "bg-agent")}Agent</span>
+      <span className="flex items-center gap-1.5">{dot(s.agentSpeaking, "bg-accent")}Agent</span>
     </span>
   );
 }
 
-export function Transcript({ lines, live }: { lines: Line[]; live: RelayState["live"] }) {
-  const ref = useStickToBottom([lines, live]);
-  const who = (w: "operator" | "agent") => (w === "agent" ? "Agent" : "You");
+// ---- the clearance code, rendered the same way live (large) or in history (compact) ----
+
+export function CodeWords({ words, size = "lg" }: { words: string[]; size?: "lg" | "sm" }) {
+  const cls = size === "lg"
+    ? "rounded-lg border-2 border-accent/50 bg-accent/[0.07] px-4 py-2 font-mono text-[1.5rem] leading-none font-bold tracking-[0.04em] text-accent uppercase sm:text-[1.9rem]"
+    : "rounded border border-line-strong bg-panel px-2 py-0.5 font-mono text-[12px] font-semibold tracking-wide text-ink uppercase";
   return (
-    <div ref={ref} role="log" aria-label="Conversation" className="h-full max-h-[50vh] space-y-2.5 overflow-y-auto px-4 py-3 lg:max-h-none">
-      {!lines.length && !live && (
-        <p className="text-sm text-muted">The agent greets you in a moment. Speak normally; it listens the whole time.</p>
-      )}
-      {lines.map((l) =>
-        l.who === "tool" ? (
-          <p key={l.id} className="pl-[5.25rem] font-mono text-xs text-muted">
-            ↳ {l.text}
-          </p>
-        ) : (
-          <p key={l.id} className="grid grid-cols-[4.5rem_1fr] gap-3 text-[15px] leading-snug">
-            <span className={`pt-0.5 text-[11px] font-semibold tracking-[0.16em] uppercase ${l.who === "agent" ? "text-agent" : "text-ink"}`}>
-              {who(l.who)}
-            </span>
-            <span className={l.who === "agent" ? "text-ink" : "text-ink/85"}>
-              {l.text}
-              {l.interrupted ? " —" : ""}
-            </span>
-          </p>
-        ),
-      )}
-      {live && (
-        <p className="grid grid-cols-[4.5rem_1fr] gap-3 text-[15px] leading-snug text-muted">
-          <span className="pt-0.5 text-[11px] tracking-[0.16em] uppercase">{who(live.who)}</span>
-          <span>
-            {live.text}
-            <span aria-hidden className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 animate-pulse bg-muted" />
-          </span>
-        </p>
+    <div className={`flex flex-wrap ${size === "lg" ? "gap-2.5" : "gap-1.5"}`}>
+      {words.map((w, i) => <span key={i} className={cls}>{w}</span>)}
+    </div>
+  );
+}
+
+// F10d: the diff has no line numbers, so it can't point at crash_line word-for-word -- that string only ever
+// matches a log line (see LogTape's highlight). Naming it directly under the diff is the honest version of
+// "annotate the exact line": it connects the change to the crash without pretending to find it inside the diff.
+function DiffBlock({ diff, crashLine }: { diff: string; crashLine?: string }) {
+  return (
+    <div className="mt-2 overflow-x-auto rounded-md bg-board px-3 py-2.5 font-mono text-[11.5px] leading-[1.65]">
+      {diff.split("\n").map((line, i) => (
+        <div key={i} className={line.startsWith("+") ? "text-healthy" : line.startsWith("-") ? "text-down" : "text-muted"}>
+          {line || " "}
+        </div>
+      ))}
+      {crashLine && (
+        <div className="mt-2 border-t border-line-strong pt-2 text-down">→ crashes at {crashLine}</div>
       )}
     </div>
   );
 }
 
-function Stamp({ heard, at, cancelled }: { heard?: string; at?: number; cancelled?: boolean }) {
-  return (
-    <div
-      className={`pointer-events-none absolute top-12 right-6 animate-stamp rounded-md border-[3px] px-4 py-2 text-center mix-blend-multiply ${
-        cancelled ? "border-void text-void" : "border-stamp text-stamp"
-      }`}
-    >
-      <p className="font-display text-3xl font-extrabold tracking-[0.12em] uppercase">{cancelled ? "Cancelled" : "Authorized"}</p>
-      {!cancelled && heard && (
-        <p className="max-w-[15rem] text-xs">
-          “{heard}”{at ? ` · ${hms(at)}` : ""}
-        </p>
-      )}
-    </div>
-  );
-}
+const GATE_TITLE: Record<Gate["state"], string> = {
+  awaiting: "Awaiting voice authorization", approved: "Authorized", executing: "Executing", done: "Complete", rejected: "Cancelled",
+};
 
-// The signature element: a clearance slip. The code is only ever sent to this screen, never to the model.
-export function Slip({ gate, progress, mic }: { gate: Gate | null; progress?: string; mic: RelayState["mic"] }) {
-  const now = useNow(200);
-  if (!gate) {
-    return (
-      <div className="grid min-h-44 place-content-center gap-2 rounded-md border border-dashed border-rule px-6 py-8 text-center">
-        <p className="font-display text-3xl font-bold tracking-wide text-ink/80 uppercase">No change pending</p>
-        <p className="mx-auto max-w-md text-sm text-muted">
-          The agent investigates on its own. Any change to production stops here until you authorize it by voice.
+// F10a: institutional memory, made visible -- not just a line in the page. Distinct from the clearance card
+// (this is what the agent remembers, not what it's waiting on) so the two are never mistaken for each other.
+export function PrecedentCard({ precedent }: { precedent: Precedent }) {
+  return (
+    <div className="animate-rise flex items-start gap-3 rounded-xl bg-panel/70 px-4 py-3.5 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.7)] ring-1 ring-accent/20">
+      <History aria-hidden size={16} className="mt-0.5 shrink-0 text-accent" />
+      <div>
+        <p className="font-mono text-[10.5px] font-semibold tracking-[0.1em] text-accent uppercase">Seen this before</p>
+        <p className="mt-1 text-[13.5px] text-ink">
+          {precedent.service} failed the same way before, at {hms(precedent.resolved_at * 1000)}
+          {" — "}
+          a {precedent.action.replace("_", " ")} fixed it in {precedent.mttr_s}s.
         </p>
       </div>
-    );
-  }
-  const [w1 = "", w2 = ""] = (gate.code ?? "").toUpperCase().split(" ");
+    </div>
+  );
+}
+
+// The signature moment, always docked at the top of the command column -- never inside a scrolling feed, never
+// behind navigation. This is what the whole product is for; it doesn't get to be optional to find.
+export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"] }) {
+  const now = useNow(200);
+  const [expanded, setExpanded] = useState(true); // F10d: root cause is default-visible, not a footnote
+  const words = (gate.code ?? "").toUpperCase().split(" ");
   const left = gate.expiresAt ? Math.max(0, gate.expiresAt - now) : 0;
   const awaiting = gate.state === "awaiting";
   const expired = awaiting && left === 0;
-  const stamped = gate.state === "approved" || gate.state === "executing" || gate.state === "done";
+  const changeText = `${ACTION[gate.action] ?? gate.action} ${gate.service}${gate.change?.includes(" to ") ? ` · ${gate.change.replace(" to ", " → ")}` : ""}`;
   return (
-    <section
+    <div
       key={gate.code}
-      aria-live="polite"
-      aria-label="Change authorization"
-      className="relative animate-slip-in overflow-hidden rounded-[3px] bg-paper px-7 py-6 text-paper-ink shadow-[0_18px_40px_-18px_rgba(0,0,0,0.85)]"
+      className={`animate-rise relative overflow-hidden rounded-xl border-2 p-5 ${
+        awaiting && !expired
+          ? "border-accent/60 bg-accent/[0.05] shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_20%,transparent),0_20px_50px_-20px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]"
+          : "border-line bg-panel"
+      }`}
     >
-      <div className="flex items-center justify-between text-[11px] font-semibold tracking-[0.22em] uppercase">
-        <span>{expired ? "Code expired" : GATE_TITLE[gate.state]}</span>
-        {awaiting && !expired && <span className="font-mono tabular-nums">{Math.ceil(left / 1000)} s left</span>}
-      </div>
-      <p className={`mt-3 font-display text-[clamp(3.5rem,7.5vw,6.75rem)] leading-[0.9] font-extrabold tracking-tight uppercase ${expired ? "opacity-30" : ""}`}>
-        {w1} <span aria-hidden className="text-paper-ink/35">·</span> {w2}
-      </p>
-      <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 border-t border-paper-ink/20 pt-4 text-[15px]">
-        <dt className="text-paper-ink/60">Change</dt>
-        <dd className="font-semibold">
-          {ACTION[gate.action] ?? gate.action} {gate.service}
-          {gate.change?.includes(" to ") ? ` · ${gate.change.replace(" to ", " → ")}` : ""}
-        </dd>
-        <dt className="text-paper-ink/60">Affects</dt>
-        <dd>{gate.affected?.length ? gate.affected.join(", ") : "No dependent services"}</dd>
-        {progress && !awaiting && (
-          <>
-            <dt className="text-paper-ink/60">Status</dt>
-            <dd>{progress}</dd>
-          </>
-        )}
-      </dl>
       {awaiting && !expired && (
-        <div aria-hidden className="mt-5 h-1.5 bg-paper-ink/15">
-          <div className="h-full bg-paper-ink transition-[width] duration-200 ease-linear" style={{ width: `${(left / 120000) * 100}%` }} />
+        <span aria-hidden className="absolute top-4 right-4 flex size-2.5">
+          <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-accent" />
+          <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
+        </span>
+      )}
+      <div className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+        <Lock aria-hidden size={13} className={awaiting && !expired ? "text-accent" : "text-muted"} />
+        <span>{expired ? "Code expired" : GATE_TITLE[gate.state]}</span>
+        {awaiting && !expired && <span className="ml-auto tabular-nums">{Math.ceil(left / 1000)}s left</span>}
+      </div>
+      <p className="mt-3 text-[17px] font-semibold text-ink">{changeText}</p>
+      {gate.affected?.length ? <p className="mt-0.5 text-[13px] text-muted">Affects {gate.affected.join(", ")}</p> : null}
+      {awaiting && !expired && (
+        <>
+          <div className="mt-4">
+            <CodeWords words={words} />
+          </div>
+          <p className="mt-3 font-mono text-[13px] text-muted">
+            Say: <span className="text-ink">&ldquo;{ACTION[gate.action] ?? gate.action} {gate.service}, {words.join(" ")}.&rdquo;</span>
+          </p>
+          <div aria-hidden className="mt-4 h-1 overflow-hidden rounded-full bg-line">
+            <div className="h-full bg-accent transition-[width] duration-200 ease-linear" style={{ width: `${(left / 120000) * 100}%` }} />
+          </div>
+        </>
+      )}
+      {gate.evidence && (
+        <div className="mt-4 border-t border-line pt-3">
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-1.5 font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase hover:text-ink">
+            {expanded ? <ChevronUp aria-hidden size={13} /> : <ChevronDown aria-hidden size={13} />}
+            Root cause
+          </button>
+          {expanded && (
+            <div className="mt-2.5">
+              <p className="text-[13.5px] text-ink">
+                <span className="font-mono text-muted">{gate.evidence.commit}</span> <span className="text-muted">·</span> {gate.evidence.message}
+              </p>
+              <p className="mt-1 font-mono text-xs text-muted">{gate.evidence.files.join(", ")}</p>
+              <DiffBlock diff={gate.evidence.diff} crashLine={gate.evidence.crash_line} />
+            </div>
+          )}
         </div>
       )}
-      <p className="mt-4 text-sm text-paper-ink/75">
+      <p className="mt-4 text-[13px] text-muted">
         {expired
           ? "Nothing was changed. Ask the agent to propose the fix again for a new code."
           : mic === "blocked"
-            ? "Your microphone is blocked. Allow it in the browser to authorize by voice."
+            ? "Your microphone is blocked — allow it in the browser to authorize by voice."
             : mic === "off"
-              ? "You’re watching without a microphone, so nobody can authorize this change. The agent cannot see this code."
+              ? "Watching without a microphone: nobody can authorize this. The agent cannot see this code."
               : "The agent cannot see this code. It is shown only on your screen."}
+        {gate.state === "approved" || gate.state === "executing" || gate.state === "done" ? ` Authorized: “${gate.heard}”.` : null}
       </p>
-      {stamped && <Stamp heard={gate.heard} at={gate.approvedAt} />}
-      {gate.state === "rejected" && <Stamp cancelled />}
-    </section>
-  );
-}
-
-export function Resolution({ ttr, onOpen }: { ttr: number; onOpen: () => void }) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-healthy/40 bg-healthy/10 px-5 py-4">
-      <div>
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-healthy uppercase">Incident resolved</p>
-        <p className="font-display text-4xl font-extrabold">Recovered in {ttr} s</p>
-      </div>
-      <button type="button" className={BTN} onClick={onOpen}>
-        View incident report
-      </button>
     </div>
   );
 }
 
-export function ReportDialog({ report, dialog }: { report?: string; dialog: React.RefObject<HTMLDialogElement | null> }) {
+const AGENT_REQUEST_TITLE: Record<AgentRequest["state"], string> = {
+  pending: "External agent request", approved: "Allowed", denied: "Denied", expired: "Expired, unanswered",
+};
+
+// F4: any coding agent, not just this one, can ask AyeOps to gate a production action -- the same code, the
+// same voice decision, the same full-width treatment as a rollback proposal.
+export function LiveAgentRequest({ req }: { req: AgentRequest }) {
+  const now = useNow(200);
+  const words = (req.code ?? "").toUpperCase().split(" ");
+  const pending = req.state === "pending";
+  const left = req.expiresAt ? Math.max(0, req.expiresAt - now) : 0;
   return (
-    <dialog
-      ref={dialog}
-      className="m-auto w-[min(56rem,92vw)] rounded-md border border-rule bg-panel p-0 text-ink backdrop:bg-black/70"
-      onClick={(e) => e.target === dialog.current && dialog.current?.close()}
-    >
-      <div className="flex items-center justify-between border-b border-rule px-5 py-3">
-        <h2 className="text-[11px] font-semibold tracking-[0.18em] text-muted uppercase">Incident report</h2>
-        <button type="button" className={BTN_QUIET} onClick={() => dialog.current?.close()}>
-          Close
-        </button>
+    <div className={`animate-rise rounded-xl border-2 p-5 ${pending ? "border-down/50 bg-down/[0.05]" : "border-line bg-panel"}`}>
+      <div className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+        <Bot aria-hidden size={13} className={pending ? "text-down" : "text-muted"} />
+        <span>{AGENT_REQUEST_TITLE[req.state]}</span>
+        {pending && <span className="ml-auto tabular-nums">{Math.ceil(left / 1000)}s left</span>}
       </div>
-      <pre className="max-h-[75vh] overflow-auto px-5 py-4 font-mono text-xs leading-5 whitespace-pre-wrap">{report}</pre>
-    </dialog>
+      <p className="mt-3 text-[17px] font-semibold text-ink">
+        {req.agent} wants to run <span className="font-mono">{req.command}</span>
+      </p>
+      <p className="mt-0.5 text-[13px] text-muted">on {req.target} — &ldquo;{req.reason}&rdquo;</p>
+      {pending && req.code && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <CodeWords words={words} />
+          <p className="text-[13px] text-muted">Read the code aloud to allow it, or just say no.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compact history rows for entries in the feed that already had their moment above.
+function AuthorizationRow({ gate }: { gate: Gate }) {
+  const Icon = gate.state === "rejected" ? XCircle : CheckCircle2;
+  const changeText = `${ACTION[gate.action] ?? gate.action} ${gate.service}${gate.change?.includes(" to ") ? ` · ${gate.change.replace(" to ", " → ")}` : ""}`;
+  return (
+    <div className="flex items-center gap-2 py-1 pl-9 text-[13px] text-muted">
+      <Icon aria-hidden size={14} className={gate.state === "rejected" ? "text-down" : "text-healthy"} />
+      <span>{changeText} — {GATE_TITLE[gate.state].toLowerCase()}</span>
+    </div>
+  );
+}
+
+function AgentRequestRow({ req }: { req: AgentRequest }) {
+  const Icon = req.state === "approved" ? CheckCircle2 : XCircle;
+  return (
+    <div className="flex items-center gap-2 py-1 pl-9 text-[13px] text-muted">
+      <Icon aria-hidden size={14} className={req.state === "approved" ? "text-healthy" : "text-down"} />
+      <span>{req.agent} requested {req.command} — {AGENT_REQUEST_TITLE[req.state].toLowerCase()}</span>
+    </div>
+  );
+}
+
+function FeedRow({ item }: { item: FeedItem }) {
+  switch (item.kind) {
+    case "speech": {
+      const who = item.who === "agent" ? "Agent" : "You";
+      return (
+        <div className="grid grid-cols-[4.5rem_1fr] gap-3 py-1.5 text-[14px] leading-snug">
+          <span className={`pt-0.5 font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase ${item.who === "agent" ? "text-accent" : "text-ink"}`}>{who}</span>
+          <span className={item.who === "agent" ? "text-ink" : "text-ink/85"}>
+            {item.text}
+            {item.interrupted ? " —" : ""}
+          </span>
+        </div>
+      );
+    }
+    case "tool":
+      return (
+        <div className="py-1 pl-9 font-mono text-[12px] text-muted">
+          <ScrollText aria-hidden size={11} className="mr-1.5 inline -translate-y-px" />
+          {item.text}
+        </div>
+      );
+    case "phase":
+      return (
+        <div className="flex items-center gap-3 py-2.5">
+          <span aria-hidden className="h-px flex-1 bg-line" />
+          <span className="font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase">
+            {item.phase === "resolved" ? "Resolved" : `${PHASE_LABEL[item.phase]} started`}
+          </span>
+          <span aria-hidden className="h-px flex-1 bg-line" />
+        </div>
+      );
+    case "gate":
+      return <AuthorizationRow gate={item.gate} />;
+    case "agent_request":
+      return <AgentRequestRow req={item.req} />;
+    case "flag":
+      return (
+        <div className="flex items-start gap-2 rounded-md bg-degraded/10 px-3 py-2 text-[12.5px] text-degraded">
+          <AlertTriangle aria-hidden size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Instruction-shaped log line from <span className="font-mono">{item.service}</span>, treated as data:{" "}
+            <span className="font-mono opacity-80">“{item.line}”</span>
+          </span>
+        </div>
+      );
+    case "precedent":
+      return (
+        <div className="flex items-start gap-2 rounded-md bg-accent/10 px-3 py-2 text-[12.5px] text-accent">
+          <History aria-hidden size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Matches a prior {item.precedent.service} incident — a {item.precedent.action.replace("_", " ")} fixed it
+            in {item.precedent.mttr_s}s
+          </span>
+        </div>
+      );
+    case "link": {
+      const tone = item.tone === "ok" ? "text-healthy" : item.tone === "error" ? "text-down" : "text-degraded";
+      const Icon = item.tone === "ok" ? Wifi : WifiOff;
+      return (
+        <div className={`flex items-center gap-2 py-1 text-[12.5px] ${tone}`}>
+          <Icon aria-hidden size={13} />
+          {item.text}
+        </div>
+      );
+    }
+  }
+}
+
+export function ActivityFeed({ s }: { s: RelayState }) {
+  const ref = useStickToBottom([s.feed.length, s.live]);
+  const who = (w: "operator" | "agent") => (w === "agent" ? "Agent" : "You");
+  return (
+    <div ref={ref} role="log" aria-label="Activity" className="h-full space-y-1 overflow-y-auto px-4 py-3">
+      {!s.feed.length && !s.live && (
+        <div className="grid h-full min-h-40 place-content-center text-center">
+          <p className="text-sm text-muted">The agent greets you in a moment.</p>
+          <p className="mt-1 text-sm text-muted-2">Speak normally — it listens the whole time.</p>
+        </div>
+      )}
+      {s.feed.map((item) => <FeedRow key={item.id} item={item} />)}
+      {s.live && (
+        <div className="grid grid-cols-[4.5rem_1fr] gap-3 py-1.5 text-[14px] leading-snug text-muted">
+          <span className="pt-0.5 font-mono text-[10.5px] tracking-[0.08em] uppercase">{who(s.live.who)}</span>
+          <span>
+            {s.live.text}
+            <span aria-hidden className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 animate-pulse bg-muted" />
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The report: a slide-over, not a tab -- it never has to compete with a live incident for the same screen.
+export function ReportDrawer({ s, open, onClose }: { s: RelayState; open: boolean; onClose: () => void }) {
+  useDismiss(open, onClose); // the backdrop button already covers an outside click; this adds Escape
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-30 flex justify-end">
+      <button type="button" aria-label="Close report" onClick={onClose} className="absolute inset-0 bg-black/60" />
+      <div className="animate-rise relative flex h-full w-full max-w-2xl flex-col border-l border-line bg-board shadow-[-24px_0_60px_-20px_rgba(0,0,0,0.6)]">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h2 className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+            <FileText aria-hidden size={13} /> Incident report
+          </h2>
+          <button type="button" onClick={onClose} className="rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-ink">
+            <X aria-hidden size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {!s.report ? (
+            <div className="grid h-full min-h-64 place-content-center text-center">
+              <FileText aria-hidden size={22} className="mx-auto text-muted-2" />
+              <p className="mt-2 text-sm text-muted">The report is filed automatically once an incident resolves.</p>
+            </div>
+          ) : (
+            <div className="space-y-6 px-5 py-6">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-line bg-panel-2 px-4 py-3">
+                  <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">Detected</p>
+                  <p className="mt-1 font-mono text-sm text-ink">{s.incidentAt ? hms(s.incidentAt) : "—"}</p>
+                </div>
+                <div className="rounded-lg border border-line bg-panel-2 px-4 py-3">
+                  <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">Recovered</p>
+                  <p className="mt-1 font-mono text-sm text-ink">{s.resolvedAt ? hms(s.resolvedAt) : "—"}</p>
+                </div>
+                <div className="rounded-lg border border-accent/30 bg-accent/[0.06] px-4 py-3">
+                  <p className="font-mono text-[10px] tracking-[0.1em] text-accent uppercase">Time to recover</p>
+                  <p className="mt-1 font-mono text-sm text-ink">{s.ttr}s</p>
+                </div>
+              </div>
+              {s.feed.filter((f): f is FeedItem & { kind: "gate" } => f.kind === "gate" && f.gate.state === "approved").map((g) => (
+                <div key={g.id} className="rounded-lg border border-line bg-panel-2 px-4 py-3.5">
+                  <p className="font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Voice-authorized change</p>
+                  <p className="mt-1.5 text-[14px] text-ink">
+                    {ACTION[g.gate.action] ?? g.gate.action} {g.gate.service}
+                    {g.gate.change?.includes(" to ") ? ` · ${g.gate.change.replace(" to ", " → ")}` : ""}
+                  </p>
+                  <p className="mt-1 text-[13px] text-muted">Authorized: &ldquo;{g.gate.heard}&rdquo;</p>
+                </div>
+              ))}
+              <div>
+                <p className="mb-2 font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Timeline</p>
+                <div className="rounded-lg border border-line bg-panel-2 px-4 py-2">
+                  {s.feed.map((item) => (
+                    <div key={item.id} className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-line py-2 text-[13px] last:border-0">
+                      <span className="font-mono text-muted-2">{hms(item.at)}</span>
+                      <FeedRow item={item} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
 export function ApiPanel({ events }: { events: ApiEvent[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-t border-rule">
+    <div className="border-t border-line bg-panel">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-5 py-2 text-left text-[11px] font-semibold tracking-[0.18em] text-muted uppercase hover:text-ink"
+        className="flex w-full items-center justify-between px-5 py-2 text-left font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase transition-colors hover:text-ink"
       >
-        <span>AssemblyAI Voice Agent API · {events.length} events</span>
-        <span>{open ? "Hide" : "Show"}</span>
+        <span className="flex items-center gap-2">
+          <Activity aria-hidden size={12} className="text-accent" />
+          AssemblyAI Voice Agent API · {events.length} events
+        </span>
+        <span className="flex items-center gap-1 text-[10px]">
+          {open ? <ChevronUp aria-hidden size={12} /> : <ChevronDown aria-hidden size={12} />}
+          {open ? "Hide" : "Show"}
+        </span>
       </button>
       {open && (
-        <ol className="max-h-56 overflow-y-auto px-5 pb-3 font-mono text-xs">
+        <ol className="max-h-56 overflow-y-auto border-t border-line px-5 py-2 font-mono text-xs">
           {[...events].reverse().map((e) => (
-            <li key={e.id} className="grid grid-cols-[5.5rem_1.25rem_13rem_1fr] gap-2 py-0.5">
-              <span className="text-muted tabular-nums">{hms(e.at)}</span>
-              <span className={e.dir === "out" ? "text-paper" : "text-agent"} title={e.dir === "out" ? "Sent by the relay" : "Received"}>
+            <li key={e.id} className="grid grid-cols-[5.5rem_1.25rem_13rem_1fr] gap-2 py-1">
+              <span className="text-muted-2 tabular-nums">{hms(e.at)}</span>
+              <span className={e.dir === "out" ? "text-accent" : "text-ink/70"} title={e.dir === "out" ? "Sent by the relay" : "Received"}>
                 {e.dir === "out" ? "→" : "←"}
               </span>
               <span className="truncate text-ink">{e.type}</span>
@@ -474,3 +781,21 @@ export function ApiPanel({ events }: { events: ApiEvent[] }) {
     </div>
   );
 }
+
+export function LinkToast({ s }: { s: RelayState }) {
+  const now = useNow(500);
+  if (s.error) return <Toast tone="error">The session stopped: {s.error}. Reload the page to start a new one.</Toast>;
+  if (s.link === "reconnecting") return <Toast tone="warn">Voice link lost. Reconnecting…</Toast>;
+  if (s.recovery && now - s.recovery.at < 6000) {
+    const how = s.recovery.kind === "resumed" ? "same session" : "new session, briefed from the record";
+    return <Toast tone="ok">Voice link restored in {(s.recovery.ms / 1000).toFixed(1)}s ({how}).</Toast>;
+  }
+  return null;
+}
+
+function Toast({ tone, children }: { tone: "warn" | "ok" | "error"; children: ReactNode }) {
+  const cls = tone === "ok" ? "border-healthy/40 bg-healthy/10 text-healthy" : tone === "error" ? "border-down/40 bg-down/10 text-down" : "border-degraded/40 bg-degraded/10 text-degraded";
+  return <p role="status" className={`border-b px-5 py-2 text-[13px] ${cls}`}>{children}</p>;
+}
+
+export { Server, ScrollText, Radio };

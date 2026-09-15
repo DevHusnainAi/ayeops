@@ -1,45 +1,56 @@
 @import "tailwindcss";
 
-/* Palette: a night control-room board. Red, amber, green and blue mean service status and nothing else; the
-   buff "paper" is reserved for the clearance slip, the one thing an operator must read. */
+/* Night ops board, deliberately single-theme: this is a control room, not a marketing site that needs to work
+   in daylight. Accent is a signal cyan -- distinct from every status hue (healthy green, degraded amber, down
+   red, remediating steel-blue) so the brand color is never mistaken for a health reading. */
 @theme {
-  --color-board: #0f1519;
-  --color-panel: #151d23;
-  --color-rule: #26323b;
-  --color-ink: #dce3e8;
-  --color-muted: #83919b;
-  --color-agent: #a9c1d9;
-  --color-paper: #ece4cf;
-  --color-paper-ink: #1c1f21;
-  --color-stamp: #1f6a47;
-  --color-void: #9b2c2c;
-  --color-down: #ef4d4f;
-  --color-degraded: #f2a531;
-  --color-healthy: #3ccf87;
-  --color-remediating: #6ab1ff;
+  --color-board: #0a0b0d;
+  --color-panel: #121417;
+  --color-panel-2: #171a1e;
+  --color-line: #23262b;
+  --color-line-strong: #34383f;
+  --color-ink: #eef0f2;
+  --color-muted: #8b929c;
+  --color-muted-2: #5a6069;
 
-  --animate-slip-in: slip-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  --animate-stamp: stamp 420ms cubic-bezier(0.3, 1.4, 0.5, 1) both;
-  --animate-flash: flash 1.2s ease-out;
+  --color-accent: #22e0d8;
+  --color-accent-ink: #04211f;
 
-  @keyframes slip-in {
-    from { opacity: 0; transform: translateX(28px) rotate(1.5deg); }
+  --color-healthy: #34d399;
+  --color-degraded: #f5a623;
+  --color-down: #f0473f;
+  --color-remediating: #5b8def;
+
+  --animate-rise: rise 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-flash: flash 1.1s ease-out;
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-drift: drift 22s linear infinite;
+  --animate-blink: blink 1.1s steps(1) infinite;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: none; }
   }
-  @keyframes stamp {
-    from { opacity: 0; transform: scale(1.8) rotate(-14deg); }
-    to { opacity: 1; transform: scale(1) rotate(-8deg); }
-  }
   @keyframes flash {
-    from { background-color: color-mix(in oklab, currentColor 30%, transparent); }
+    from { background-color: color-mix(in oklab, currentColor 24%, transparent); }
     to { background-color: transparent; }
+  }
+  @keyframes pulse-ring {
+    0%, 100% { opacity: 0.55; transform: scale(1); }
+    50% { opacity: 0.15; transform: scale(1.6); }
+  }
+  @keyframes drift {
+    from { background-position: 0 0; }
+    to { background-position: 480px 0; }
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
   }
 }
 
 @theme inline {
-  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-atkinson-mono), ui-monospace, "SFMono-Regular", monospace;
-  --font-display: var(--font-shoulders), "Arial Narrow", sans-serif;
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, "SFMono-Regular", monospace;
 }
 
 html {
@@ -48,15 +59,30 @@ html {
 }
 
 body {
-  background: var(--color-board);
+  background-color: var(--color-board);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 30%, transparent);
+  color: var(--color-ink);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-paper);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
+
+/* Thin, quiet scrollbars -- the default chrome ones read as unfinished against a dense console UI. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--color-line-strong); border-radius: 4px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

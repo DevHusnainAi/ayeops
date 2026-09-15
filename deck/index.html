@@ -1,0 +1,511 @@
+<title>AyeOps — Deck</title>
+<style>
+  @font-face {
+    font-family: "Shoulders";
+    src: url("fonts/big-shoulders-900.woff2") format("woff2");
+    font-weight: 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Atkinson";
+    src: url("fonts/atkinson-next-400.woff2") format("woff2");
+    font-weight: 400;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "AtkinsonMono";
+    src: url("fonts/atkinson-mono-600.woff2") format("woff2");
+    font-weight: 600;
+    font-display: swap;
+  }
+
+  /* Deliberately single-theme: this deck mirrors the AyeOps dashboard, a night control-room board that never
+     runs light. Matching the live demo's exact palette is the point — a judge should feel one product. */
+  :root {
+    --board: #0f1519;
+    --panel: #151d23;
+    --panel-raised: #1a232b;
+    --rule: #26323b;
+    --ink: #dce3e8;
+    --muted: #83919b;
+    --paper: #ece4cf;
+    --paper-ink: #1c1f21;
+    --down: #ef4d4f;
+    --healthy: #3ccf87;
+    --degraded: #f2a531;
+    --agent: #a9c1d9;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--board);
+    color: var(--ink);
+    font-family: "Atkinson", ui-sans-serif, system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+  }
+  ::selection { background: var(--paper); color: var(--paper-ink); }
+
+  h1, h2, h3, .display {
+    font-family: "Shoulders", "Arial Narrow", sans-serif;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  .mono { font-family: "AtkinsonMono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-family: "AtkinsonMono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  p { max-width: 62ch; }
+  a { color: var(--agent); }
+
+  /* ---- slide scaffold ---- */
+  .deck { scroll-snap-type: y proximity; }
+  @media (prefers-reduced-motion: no-preference) {
+    .deck { scroll-behavior: smooth; }
+  }
+  .slide {
+    scroll-snap-align: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    padding: clamp(1.5rem, 5vw, 5rem);
+    border-bottom: 1px solid var(--rule);
+    overflow: hidden;
+  }
+  .slide-inner { max-width: 74rem; margin: 0 auto; width: 100%; }
+  .slide-index {
+    position: absolute;
+    bottom: clamp(1.25rem, 3vw, 2.25rem);
+    right: clamp(1.5rem, 5vw, 5rem);
+    font-family: "AtkinsonMono", ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .slide-mark {
+    position: absolute;
+    bottom: clamp(1.25rem, 3vw, 2.25rem);
+    left: clamp(1.5rem, 5vw, 5rem);
+    font-family: "AtkinsonMono", ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+  }
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 640ms ease, transform 640ms ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  .rule { height: 1px; background: var(--rule); border: none; margin: 2rem 0; }
+  .grid { display: grid; gap: 1.5rem; }
+  .cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 760px) { .cols-2, .cols-3 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 1.4rem 1.5rem;
+  }
+  .stat-num { font-family: "Shoulders"; font-weight: 900; font-size: clamp(2.4rem, 5vw, 3.4rem); line-height: 0.92; }
+  .stat-label { font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 0.5rem; }
+  .stat-src { font-size: 0.74rem; color: var(--muted); margin-top: 0.35rem; }
+
+  .down { color: var(--down); }
+  .healthy { color: var(--healthy); }
+  .paper-text { color: var(--paper); }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+  ol.steps li {
+    display: grid;
+    grid-template-columns: 3.2rem 1fr;
+    gap: 1.25rem;
+    padding: 1.1rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  ol.steps li:last-child { border-bottom: 1px solid var(--rule); }
+  ol.steps .n { font-family: "AtkinsonMono", ui-monospace, monospace; color: var(--muted); font-size: 0.9rem; padding-top: 0.1rem; }
+  ol.steps h3 { font-size: 1.05rem; margin-bottom: 0.25rem; }
+  ol.steps p { margin: 0; color: var(--ink); opacity: 0.85; font-size: 0.95rem; }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  table.cmp th, table.cmp td { text-align: left; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.cmp th { font-family: "AtkinsonMono"; font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 400; }
+  table.cmp td.us { color: var(--paper); font-weight: 600; }
+  .table-wrap { overflow-x: auto; }
+
+  /* ---- the clearance slip, recreated ---- */
+  .slip {
+    background: var(--paper);
+    color: var(--paper-ink);
+    border-radius: 2px;
+    padding: 1.75rem 2rem;
+    box-shadow: 0 24px 50px -20px rgba(0,0,0,0.7);
+    max-width: 30rem;
+  }
+  .slip .tag { font-family: "AtkinsonMono"; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; }
+  .slip .code { font-family: "Shoulders"; font-weight: 900; font-size: clamp(2.6rem, 6vw, 4.2rem); line-height: 0.9; margin-top: 0.6rem; text-transform: uppercase; }
+  .slip .say { font-family: "AtkinsonMono"; font-size: 0.92rem; margin-top: 0.85rem; opacity: 0.85; }
+  .slip dl { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 1.25rem; margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid rgba(28,31,33,0.2); font-size: 0.88rem; }
+  .slip dt { opacity: 0.6; }
+  .slip .foot { font-size: 0.82rem; margin-top: 1rem; opacity: 0.75; max-width: none; }
+
+  footer.close {
+    display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; align-items: baseline; justify-content: space-between;
+  }
+
+  @media print {
+    .deck { scroll-snap-type: none; }
+    .slide {
+      break-after: page;
+      page-break-after: always;
+      min-height: 100vh;
+      border-bottom: none;
+    }
+    .reveal { opacity: 1 !important; transform: none !important; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+  @page { size: landscape; margin: 0; }
+</style>
+
+<div class="deck">
+
+  <!-- 1 — COVER -->
+  <section class="slide" style="background:
+      radial-gradient(60rem 40rem at 82% -10%, rgba(60,207,135,0.10), transparent 60%),
+      radial-gradient(50rem 30rem at -10% 110%, rgba(239,77,79,0.10), transparent 55%), var(--board);">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">AssemblyAI Voice Agent Hackathon — 2026</p>
+      <h1 style="font-size: clamp(3.2rem, 11vw, 8.5rem); margin-top: 0.6rem;">AyeOps</h1>
+      <p class="display" style="font-size: clamp(1.1rem, 2.6vw, 1.6rem); color: var(--ink); opacity: 0.9; margin-top: 0.5rem; text-transform: none; letter-spacing: normal;">
+        “AI does the ops. You give the aye.”
+      </p>
+      <hr class="rule" style="max-width: 20rem; margin: 1.75rem 0;" />
+      <p style="max-width: 40ch; font-size: 1.05rem; color: var(--ink);">
+        A voice-authorized incident commander. It pages you, diagnoses the outage, and asks for the one thing no
+        language model can fake: your voice, reading back a code it has never seen.
+      </p>
+    </div>
+    <span class="slide-mark">AyeOps</span>
+    <span class="slide-index">01 / 11</span>
+  </section>
+
+  <!-- 2 — THE FAILURE -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">Why this exists</p>
+      <h2 style="font-size: clamp(2rem, 5vw, 3.2rem); margin-top: 0.5rem; max-width: 20ch;">
+        Instructions are not <span class="down">enforcement</span>.
+      </h2>
+      <p style="margin-top: 1.25rem; font-size: 1.05rem;">
+        In July 2025, an AI coding agent deleted a production database during an explicit code freeze it had been
+        told to observe.
+        <span class="mono" style="font-size: 0.8rem; color: var(--muted);">— The Register, Jul 21 2025 (Replit / SaaStr incident)</span>
+      </p>
+      <p style="margin-top: 0.75rem;">
+        Telling an AI what not to do is not a safeguard. The industry has since converged on “AI proposes, a human
+        approves” — but approval today is a click, a chat command, or a policy set in advance. None of it proves
+        <em>which human</em> approved <em>this exact change</em>, independent of the AI's own output.
+      </p>
+      <div class="grid cols-3" style="margin-top: 2.25rem;">
+        <div class="card">
+          <div class="stat-num">70<span style="font-size: 0.5em;">%</span></div>
+          <div class="stat-label">of outages come from a change to a live system</div>
+          <div class="stat-src">Google SRE Book, Introduction</div>
+        </div>
+        <div class="card">
+          <div class="stat-num">85<span style="font-size: 0.5em;">%</span></div>
+          <div class="stat-label">of human-error outages: procedures not followed, or flawed</div>
+          <div class="stat-src">Uptime Institute, Annual Outage Analysis 2025</div>
+        </div>
+        <div class="card">
+          <div class="stat-num">&gt;$300<span style="font-size: 0.5em;">k</span></div>
+          <div class="stat-label">cost of one hour of downtime, for 90%+ of mid/large firms</div>
+          <div class="stat-src">ITIC, Hourly Cost of Downtime Report 2024</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-mark">The failure</span>
+    <span class="slide-index">02 / 11</span>
+  </section>
+
+  <!-- 3 — BLIND CLEARANCE -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">The principle we introduce and define</p>
+      <h2 style="font-size: clamp(2.4rem, 6.5vw, 4.6rem); margin-top: 0.5rem;">Blind Clearance</h2>
+      <p style="margin-top: 0.75rem; font-size: 1.1rem; max-width: 46ch;">
+        An AI must never hold the means to authorize its own action.
+      </p>
+      <ol class="steps" style="margin-top: 2rem; max-width: 44rem;">
+        <li>
+          <span class="n">01</span>
+          <div>
+            <h3>The secret never enters the model's context</h3>
+            <p>The authorization code is generated by the relay and shown only on the operator's screen. The model
+              is never told it, so it cannot say it, guess it, or hallucinate having heard it.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">02</span>
+          <div>
+            <h3>A human reads the change back, with the secret</h3>
+            <p>Not “yes.” The operator says the action, the service, <em>and</em> the code together — proof they
+              understood what they're approving, not just that they can read two words off a screen.</p>
+          </div>
+        </li>
+        <li>
+          <span class="n">03</span>
+          <div>
+            <h3>A separate authority executes — never the model</h3>
+            <p>The relay verifies the readback and runs exactly the authorized change. The model is outside the
+              trigger path entirely, even if it were fully compromised.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+    <span class="slide-mark">Blind Clearance</span>
+    <span class="slide-index">03 / 11</span>
+  </section>
+
+  <!-- 4 — HOW IT PLAYS OUT -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">One incident, start to finish</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">What the judge watches happen</h2>
+      <div class="grid cols-2" style="margin-top: 2rem; align-items: start;">
+        <ol class="steps">
+          <li><span class="n">1</span><div><h3>The page</h3><p>A bad deploy ships. Auth crash-loops for real. AyeOps speaks first — it pages the operator before being asked.</p></div></li>
+          <li><span class="n">2</span><div><h3>Autonomous triage</h3><p>Read-only health and log checks, root cause stated in one sentence. No human needed yet.</p></div></li>
+          <li><span class="n">3</span><div><h3>The proposal</h3><p>AyeOps proposes exactly one fix. Nothing has changed. It cannot execute — only propose.</p></div></li>
+          <li><span class="n">4</span><div><h3>The clearance slip</h3><p>A one-time code appears on the operator's screen only. The model is never shown it.</p></div></li>
+        </ol>
+        <ol class="steps">
+          <li><span class="n">5</span><div><h3>The readback</h3><p>“Roll back auth-service, Lima Charlie.” The relay checks the action, the service, <em>and</em> the code — then executes.</p></div></li>
+          <li><span class="n">6</span><div><h3>Narrated recovery</h3><p>Rollout progress spoken live. Red → green in well under a minute.</p></div></li>
+          <li><span class="n">7</span><div><h3>The postmortem</h3><p>Filed automatically, with the verbatim voice authorization and AssemblyAI's own recording as evidence.</p></div></li>
+          <li><span class="n">8</span><div><h3>Resilience</h3><p>The voice link is cut mid-incident, on purpose. Recovery in under two seconds — the pending authorization survives.</p></div></li>
+        </ol>
+      </div>
+    </div>
+    <span class="slide-mark">The demo</span>
+    <span class="slide-index">04 / 11</span>
+  </section>
+
+  <!-- 5 — THE SLIP, RECREATED -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">The signature moment</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem; max-width: 18ch;">
+        A code the model will <span class="paper-text">never</span> see
+      </h2>
+      <div style="margin-top: 2.25rem; display: flex; gap: 2.5rem; flex-wrap: wrap; align-items: center;">
+        <div class="slip">
+          <div class="tag">Read aloud to authorize · 87s left</div>
+          <div class="code">Lima · Charlie</div>
+          <div class="say">Say: “Roll back auth-service, Lima Charlie.”</div>
+          <dl>
+            <dt>Change</dt><dd>Roll back auth-service · v2.14.1 → v2.14.0</dd>
+            <dt>Affects</dt><dd>api-gateway, billing-worker</dd>
+          </dl>
+          <p class="foot">The agent cannot see this code. It is shown only on your screen.</p>
+        </div>
+        <p style="max-width: 30ch; color: var(--ink); opacity: 0.85;">
+          This is a faithful recreation of the live dashboard's clearance slip — not a mockup invented for this deck.
+          Ask the agent “What's the code?” mid-demo. It answers: <em>“I can't know it — it's only on your screen.”</em>
+        </p>
+      </div>
+    </div>
+    <span class="slide-mark">The slip</span>
+    <span class="slide-index">05 / 11</span>
+  </section>
+
+  <!-- 6 — MEASURED -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">Not claimed. Measured.</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">Live, on real containers, against the real API</h2>
+      <div class="grid cols-3" style="margin-top: 2.25rem;">
+        <div class="card">
+          <div class="stat-num">29<span style="font-size: 0.5em;">s</span></div>
+          <div class="stat-label">bad deploy → all green, incl. a deliberate link cut</div>
+        </div>
+        <div class="card">
+          <div class="stat-num">0.84–1.09<span style="font-size: 0.5em;">s</span></div>
+          <div class="stat-label">turn latency — measured from the operator's last voiced frame, not a flattering event</div>
+        </div>
+        <div class="card">
+          <div class="stat-num">1.8<span style="font-size: 0.5em;">s</span></div>
+          <div class="stat-label">recovery from a cut voice link, context and pending authorization intact</div>
+        </div>
+      </div>
+      <p style="margin-top: 1.75rem; font-size: 0.92rem; color: var(--muted); max-width: 60ch;">
+        Underlying infrastructure re-verified independently: cluster boots healthy in 5.0s, an injected fault is
+        visible in 0.3s, a real rollback completes in 4.1s — real Docker containers, real crash loops, real
+        rollbacks, nothing mocked.
+      </p>
+    </div>
+    <span class="slide-mark">Measured</span>
+    <span class="slide-index">06 / 11</span>
+  </section>
+
+  <!-- 7 — WHY WE'RE DIFFERENT -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">The wedge</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">Everyone else races to be faster.<br />We're the one that's constrained.</h2>
+      <div class="table-wrap" style="margin-top: 2rem;">
+        <table class="cmp">
+          <thead>
+            <tr><th>Property</th><th>Industry (PagerDuty, Azure, Datadog…)</th><th>A code-based rival in this hackathon</th><th class="us">AyeOps</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Approval secret visible to the model</td><td>n/a — clicks, tokens, policy</td><td>Yes — sent in the tool result</td><td class="us">Never in the model's context</td></tr>
+            <tr><td>Who executes the change</td><td>Human, or agent after a click / pre-approved policy</td><td>Orchestrator, after “confirm”</td><td class="us">The relay only — the model can't trigger it</td></tr>
+            <tr><td>Echo / hallucination-proof approval</td><td>n/a</td><td>No</td><td class="us">Yes, by construction</td></tr>
+            <tr><td>Agent pages the human first</td><td>Paging tools page; agents investigate</td><td>No</td><td class="us">Yes — the voice agent opens the call</td></tr>
+            <tr><td>Survives a lost model session</td><td>—</td><td>Session recovery (write-ahead log)</td><td class="us">Yes, 1.8s, authorization intact</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top: 1.25rem; font-size: 0.85rem; color: var(--muted);">
+        We don't compete on feature count — the deliberately narrow golden path is the point. We compete on the one
+        property nobody else has, shown live.
+      </p>
+    </div>
+    <span class="slide-mark">Differentiation</span>
+    <span class="slide-index">07 / 11</span>
+  </section>
+
+  <!-- 8 — TECHNOLOGY -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">Application of technology</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">We mapped the API's edges, not just its surface</h2>
+      <div class="grid cols-2" style="margin-top: 2rem;">
+        <div class="card">
+          <h3 style="font-size: 1rem; letter-spacing: 0.02em;">Six surfaces, each for a measured reason</h3>
+          <p style="font-size: 0.92rem; margin-top: 0.6rem;">
+            Single-connection STT+LLM+TTS over browser PCM16 · hold-mode tools everywhere · <span class="mono">reply.create</span>
+            for proactive paging and narration · mid-session <span class="mono">session.update</span> for phase-scoped
+            tools and verified recall · the Sessions REST API for audit evidence · keyterms tuned for reliable code
+            transcription.
+          </p>
+        </div>
+        <div class="card">
+          <h3 style="font-size: 1rem; letter-spacing: 0.02em;">Three places we proved the docs wrong</h3>
+          <p style="font-size: 0.92rem; margin-top: 0.6rem;">
+            Interactive filler clocked a 93ms tool at 5.9s, in AssemblyAI's own session timeline. Hold-mode tool
+            results must always be delivered after a barge-in, or the agent freezes for 60s. <span class="mono">session.resume</span>
+            was refused across 11 variants — so the relay stopped depending on it and rebuilds context from its own
+            record instead.
+          </p>
+        </div>
+      </div>
+    </div>
+    <span class="slide-mark">Technology</span>
+    <span class="slide-index">08 / 11</span>
+  </section>
+
+  <!-- 9 — BUSINESS -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">Business value</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">Sold to the buyer procurement already blocks</h2>
+      <div class="grid cols-2" style="margin-top: 2rem;">
+        <div>
+          <h3 style="font-size: 0.95rem; text-transform: none; letter-spacing: normal; font-family: 'Atkinson'; font-weight: 400; color: var(--muted);">Target buyer</h3>
+          <p style="margin-top: 0.35rem;">The on-call SRE or platform lead at a mid-size SaaS company (~50–500
+            engineers) carrying SOC&nbsp;2 change-management obligations (CC8.1: changes must be authorized, tested,
+            documented).</p>
+          <h3 style="font-size: 0.95rem; text-transform: none; letter-spacing: normal; font-family: 'Atkinson'; font-weight: 400; color: var(--muted); margin-top: 1.5rem;">Revenue</h3>
+          <p style="margin-top: 0.35rem;">A per-responder seat add-on beside the existing paging tool (anchor:
+            $20–40/seat/month, near PagerDuty's $21–41), plus a compliance tier selling the signed
+            authorization-and-evidence bundle to audit-driven buyers.</p>
+        </div>
+        <div>
+          <h3 style="font-size: 0.95rem; text-transform: none; letter-spacing: normal; font-family: 'Atkinson'; font-weight: 400; color: var(--muted);">Market</h3>
+          <p style="margin-top: 0.35rem;">IT/DevOps incident management: ~$4.5B (2025) → $10.8B (2034), 10.5% CAGR
+            <span class="mono" style="font-size: 0.78rem; color: var(--muted);"> (est. range; sources vary)</span>.
+            PagerDuty, the incumbent benchmark, guides $490–492M FY26 revenue with growth slowing as AI-native
+            entrants multiply.</p>
+          <h3 style="font-size: 0.95rem; text-transform: none; letter-spacing: normal; font-family: 'Atkinson'; font-weight: 400; color: var(--muted); margin-top: 1.5rem;">Unit economics</h3>
+          <p style="margin-top: 0.35rem;">Voice Agent API: $4.50/hr flat, billed per second — a 5-minute incident
+            call costs about $0.38. At ITIC's downtime floor ($5k/min), cutting remediation from an assumed
+            15-minute baseline to about a minute saves roughly $70k per incident.</p>
+        </div>
+      </div>
+    </div>
+    <span class="slide-mark">Business</span>
+    <span class="slide-index">09 / 11</span>
+  </section>
+
+  <!-- 10 — ROADMAP -->
+  <section class="slide">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">Between here and the demo judges see</p>
+      <h2 style="font-size: clamp(1.9rem, 4.5vw, 3rem); margin-top: 0.5rem;">Fifteen days, in order</h2>
+      <div class="table-wrap" style="margin-top: 2rem;">
+        <table class="cmp">
+          <thead><tr><th>Date</th><th>Work</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">Sep 16</td><td>Real-mic test · readback authorization (Blind Clearance, step 2 enforced)</td></tr>
+            <tr><td class="mono">Sep 17–19</td><td>Evidence on the clearance slip · the poisoned-log attack demo · external agent requests (any coding agent, gated)</td></tr>
+            <tr><td class="mono">Sep 20</td><td>Production deploy — <span class="mono">ayeops.vexralabs.com</span>, AWS Lightsail, HTTPS end to end</td></tr>
+            <tr><td class="mono">Sep 21–22</td><td>UI finish, visual pass, CI, README truth pass — every number traces to a source or a live measurement</td></tr>
+            <tr><td class="mono">Sep 23–26</td><td>Deck, video script, three full rehearsals, record and edit</td></tr>
+            <tr><td class="mono">Sep 27</td><td><strong style="color: var(--ink);">Submit.</strong> Public repo, deployed URL, video, deck</td></tr>
+            <tr><td class="mono">Sep 30 / Oct 1</td><td>Show HN — launch hardening shipped, both of us answering comments</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <span class="slide-mark">Roadmap</span>
+    <span class="slide-index">10 / 11</span>
+  </section>
+
+  <!-- 11 — ASK / CLOSE -->
+  <section class="slide" style="background:
+      radial-gradient(50rem 32rem at 15% 115%, rgba(60,207,135,0.10), transparent 55%), var(--board);">
+    <div class="slide-inner reveal">
+      <p class="eyebrow">AyeOps</p>
+      <h2 style="font-size: clamp(2.2rem, 6vw, 4rem); margin-top: 0.5rem; max-width: 18ch;">
+        No AI touches production without a human's informed voice.
+      </h2>
+      <hr class="rule" style="max-width: 20rem;" />
+      <footer class="close">
+        <p class="mono" style="font-size: 0.95rem; color: var(--ink);">github.com/DevHusnainAi/incidentvoice</p>
+        <p class="mono" style="font-size: 0.95rem; color: var(--muted);">ayeops.vexralabs.com — live Sep 20</p>
+        <p class="mono" style="font-size: 0.95rem; color: var(--muted);">AssemblyAI Voice Agent Hackathon · Sep 2026</p>
+      </footer>
+    </div>
+    <span class="slide-mark">Thank you</span>
+    <span class="slide-index">11 / 11</span>
+  </section>
+
+</div>
+
+<script>
+  var els = document.querySelectorAll(".reveal");
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) e.target.classList.add("in");
+      });
+    }, { threshold: 0.18 });
+    els.forEach(function (el) { io.observe(el); });
+  } else {
+    els.forEach(function (el) { el.classList.add("in"); });
+  }
+</script>
