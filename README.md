@@ -22,6 +22,50 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 
 ---
 
+**Contents:** [Quick start](#quick-start) · [The problem](#the-problem-is-not-speed) ·
+[What happens in a run](#what-happens-in-a-run) ·
+[The core idea](#the-core-idea-the-model-never-holds-the-trigger) · [Architecture](#architecture) ·
+[How it uses the Voice Agent API](#how-it-uses-the-voice-agent-api) · [Measured](#measured) ·
+[Competitors](#competitors) · [The demo cluster is real](#the-demo-cluster-is-real) ·
+[Security posture](#security-posture) · [Status](#status)
+
+---
+
+## Quick start
+
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) for the backend, an
+[AssemblyAI API key](https://www.assemblyai.com/dashboard/signup), and Node.js if you want the dashboard
+(skip it to talk to the relay directly over WebSocket).
+
+```bash
+git clone https://github.com/DevHusnainAi/ayeops.git && cd ayeops
+
+echo "ASSEMBLYAI_API_KEY=your-key-here" > backend/.env
+
+# build the dashboard once -- the relay serves it from web/out
+cd web && npm install && npm run build && cd ..
+
+cd backend
+uv run --env-file .env relay.py                  # in-memory cluster, one per browser tab
+# INFRA=docker uv run --env-file .env relay.py   # real containers instead, one project per session
+```
+
+Open **http://127.0.0.1:8000** and click **Start session** (headphones on, so the mic doesn't hear the
+agent), or **Run the demo for me** for the unattended, no-mic autopilot walkthrough.
+
+```bash
+uv run test_relay.py                                                # offline self-check, prints "ok"
+INFRA=docker uv run --env-file .env --with gtts python live_e2e.py  # full live rehearsal (~90 s, uses API credit)
+```
+
+`INFRA=docker` needs Docker running and the `python:3.13-slim` image pulled ahead of time — a missing
+base image looks exactly like a broken cluster.
+
+**Environment:** `INFRA` (sim|docker), `ALLOWED_ORIGINS`, `MAX_SESSION_S`, `MAX_DOCKER_CLUSTERS`,
+`INCIDENT_DIR`, `AAI_URL`.
+
+---
+
 ## The problem is not speed
 
 The obvious pitch for an AI incident responder is *"mean time to resolution drops from [the 101-minute
@@ -206,30 +250,6 @@ Everyone else is racing to make the agent **faster**. The bottleneck in producti
 no one will grant an LLM write access to infrastructure. AyeOps is built around that constraint
 instead of against it: reads are autonomous, writes require a live human voice reading a secret the model
 cannot access, and every change leaves a postmortem record with the verbatim authorization and audio attached.
-
----
-
-## Run it
-
-```bash
-cd backend
-
-# relay (browser connects to ws://127.0.0.1:8000/ws with Origin http://localhost:3000)
-uv run --env-file .env relay.py                  # in-memory cluster, one per tab
-INFRA=docker uv run --env-file .env relay.py     # real containers, one project per session
-
-# offline self-check — prints "ok"
-uv run test_relay.py
-
-# full live rehearsal (~90 s, uses API credit; synthesizes the operator's voice with gTTS)
-INFRA=docker uv run --env-file .env --with gtts python live_e2e.py
-```
-
-Requires `ASSEMBLYAI_API_KEY` in `backend/.env`. `INFRA=docker` needs Docker and the `python:3.13-slim`
-image pulled — **pre-pull it**, because a missing base image looks exactly like a broken cluster.
-
-**Environment:** `INFRA` (sim|docker), `ALLOWED_ORIGINS`, `MAX_SESSION_S`, `MAX_DOCKER_CLUSTERS`,
-`INCIDENT_DIR`, `AAI_URL`.
 
 ---
 
