@@ -579,8 +579,64 @@ async def resume_after_drop():
     assert s.session_id == "sess-3" and sent(s.ws, "relay.status")[-1]["upstream"] == "recovered"
 
 
+async def refusal_and_recovery_deltas():
+    """The relay refuses a restart it knows won't hold, and the postmortem carries a before/after delta."""
+    s, ev = session()
+
+    async def poll():
+        await s.on_state(await s.cluster.health())
+
+    await ev(type="session.ready", session_id="s1")
+    await poll()
+    await ev(type="reply.started")
+    await s.cluster.inject_fault()
+    await poll()
+    await ev(type="reply.done", status="completed")
+    await ev(type="reply.started")
+    await ev(type="reply.done", status="completed")
+
+    # A restart on a crash-looping bad deploy is refused, with evidence, before it ever reaches the operator.
+    r = await s.run_tool("propose_remediation", {"service": "auth-service", "action": "restart"})
+    assert "error" in r and "won't hold" in r["error"] and "e4f5061" in r["error"], r
+    assert not s.pending, "a refused proposal must never become an awaiting-authorization gate"
+    refusals = [e for e in s.ws.sent if e["type"] == "relay.refusal"]
+    assert refusals and refusals[-1]["proposed"] == "rollback", s.ws.sent
+
+    # The right fix still authorizes and executes normally.
+    r = await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+    await ev(type="transcript.user", text=f"Roll back auth-service, {code.title()}.")
+    await asyncio.gather(*s.tasks)
+    await poll()
+
+    postmortem = sent(s.ws, "relay.postmortem")[-1]
+    delta = postmortem["recovery"]["auth-service"]
+    assert delta["error_rate_before"] == 1.0 and delta["error_rate_after"] == 0.0, delta
+    assert "## Recovery" in postmortem["markdown"] and "100% → 0%" in postmortem["markdown"], postmortem["markdown"]
+
+
+async def result_ignores_cascading_dependents():
+    """A dependent still inside its cosmetic CASCADE_S recovery window must not turn a genuinely successful
+    remediation into a reported "no improvement" -- confirmed live 2026-09-16, where the agent told the
+    operator a rollback "provided no improvement" three seconds before correctly reporting the incident resolved."""
+    saved = cluster.CASCADE_S
+    cluster.CASCADE_S = 1.5  # the offline suite zeroes this globally; restore it to actually open the race window
+    try:
+        c = cluster.SimCluster()
+        await c.inject_fault()
+        c.roll_back("auth-service")
+        c.broken, c.last_broken, c.fixed_at = None, "auth-service", time.monotonic()  # just fixed
+        r = await c.result("rollback", "auth-service")
+        assert r["status"] == "success", r
+        assert r["services"]["api-gateway"]["status"] == "degraded", r  # still genuinely mid-cascade
+    finally:
+        cluster.CASCADE_S = saved
+
+
 if __name__ == "__main__":
     asyncio.run(incident_flow())
+    asyncio.run(refusal_and_recovery_deltas())
+    asyncio.run(result_ignores_cascading_dependents())
     asyncio.run(phase_scoped_tools())
     asyncio.run(incident_memory())
     asyncio.run(second_incident_same_session())

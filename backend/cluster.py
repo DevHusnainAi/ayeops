@@ -55,7 +55,11 @@ class Cluster:
 
     async def result(self, action, s):
         health = await self.health()
-        ok = all(v["status"] == "healthy" for v in health.values())
+        # Success is judged on the service actually remediated, not on dependents -- SimCluster's dependents
+        # cosmetically stay "degraded" for CASCADE_S after the root cause clears (see status()), and that window
+        # can still be open the instant remediate() takes this snapshot. Racing the outcome against a cosmetic
+        # delay reported "no improvement" on a rollback that had, in fact, worked -- confirmed live 2026-09-16.
+        ok = health[s]["status"] == "healthy"
         return {"status": "success" if ok else "no_improvement", "action": action, "service": s,
                 "services": {n: {"status": v["status"], "version": v["version"]} for n, v in health.items()}}
 

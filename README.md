@@ -10,8 +10,9 @@ language model can fake: your voice, reading a one-time code it has never seen.
 
 ## The problem is not speed
 
-The obvious pitch for an AI incident responder is *"mean time to resolution drops from 15 minutes to
-45 seconds."* That pitch is real — and it is the least interesting thing here.
+The obvious pitch for an AI incident responder is *"mean time to resolution drops from [the 101-minute
+industry median](https://stackgen.com/blog/10-sre-best-practices-for-reducing-mttr-in-2026) to 40 seconds."*
+That pitch is real, for this incident's shape — and it is the least interesting thing here.
 
 The actual problem with 3am incident response is that the on-call engineer is **impaired, alone, and
 unaccountable**:
@@ -120,16 +121,19 @@ leaves the relay process.
 
 ## How it uses the Voice Agent API
 
-Six distinct surfaces, each for a measured reason:
+Nine distinct surfaces, each for a measured reason:
 
 | Surface | Why |
 |---|---|
 | Single-connection STT + LLM + TTS | No telephony, no Twilio. Browser Web Audio PCM16 24 kHz mono straight over WebSockets. |
 | **Hold-mode tools**, everywhere | Interactive filler delays results. AssemblyAI's own timeline clocked a **93 ms tool at 5.9 s**. |
 | `reply.create` | The agent pages you, narrates the rollout, and reports outcomes — proactively, not in response to a prompt. |
-| **Mid-session `session.update`** | On resolution, the verified timeline is loaded into the prompt, so *"What happened?"* is answered from the record. Shows up in the server's `config_changes`. |
+| **Phase-scoped `session.update`** | `propose_remediation` only exists in the model's schema while an incident is open — added on triage, removed on resolution. Least privilege enforced by the platform, not the prompt; verified live in the server's own `config_changes`. |
+| **Mid-session prompt swap** | On resolution, the verified timeline is loaded into the prompt, so *"What happened?"* is answered from the record, not from memory. |
 | Sessions REST API | The two-channel recording (operator left, agent right) and per-turn timeline are pulled down as an audit bundle. |
 | `keyterms` | Service names and every code word, so authorization codes transcribe reliably. |
+| `transcription_prompt` | Free-text bias toward this call's real vocabulary — NATO code words, "crash loop", "JWKS" — separate from and additional to keyterms. |
+| `voice_focus: "near-field"` | Cuts background bleed on the browser mic without a separate noise-suppression pipeline. |
 
 ### Three places the live server disagrees with the docs
 
@@ -159,7 +163,7 @@ On real Docker containers, against the real API, including a deliberate mid-inci
 | Turn latency | **0.84–1.09 s** |
 | Recovery from connection loss | **1.8 s**, context intact |
 | Cluster boot → healthy | 5.0 s |
-| Injected fault → visible | 0.3 s |
+| Injected fault → visible | 2.6 s |
 | Rollback → all green | 4.1 s |
 
 *Time to recover runs from incident **detection** to all-green. Latency is measured from the operator's
@@ -171,18 +175,23 @@ last voiced mic frame — the honest method, not the flattering one.*
 
 | Category | Representative | What they do well | What's missing |
 |---|---|---|---|
-| **Incident management platforms** | PagerDuty, incident.io, Rootly | Alerting, on-call rotation, timeline, AI summaries | Text/chat-first. Actions run from runbooks and dashboard clicks. Authorization is *whoever holds the session token*. |
-| **AI SRE agents** | Cleric, Resolve.ai, k8sgpt | Autonomous investigation and root-cause analysis | Largely **read-only or advisory** — precisely because the authorization problem is unsolved. The hard part isn't diagnosis, it's permission. |
+| **Incident management platforms** | PagerDuty SRE Agent (Aug 2026), incident.io, Rootly | Alerting, on-call rotation, AI-drafted fixes as a PR | Approval is a **GitHub click**. Nothing proves a present human read it, understood it, or is even the person on call. |
+| **AI SRE agents** | Cleric, Resolve.ai, k8sgpt, Dynatrace Autonomous Operations (Jul 2026) | Autonomous investigation and root-cause analysis | Largely **read-only or advisory** — precisely because the authorization problem is unsolved. The hard part isn't diagnosis, it's permission. |
 | **ChatOps** | Slack bots, Backstage actions | Execute real operations from chat | Identity = an API token. No liveness, no anti-impersonation, no proof a *human* acted. |
 | **Voice agent demos** | The typical hackathon entry | Natural conversation | Nothing irreversible ever happens, so no authorization model is needed — or built. |
 
-**Where AyeOps sits:** it is the only one of these where the authorization channel *is* the voice,
-and the executing party is *not* the model.
+**Where AyeOps sits:** every one of these gates a change with a click, a token, or nothing at all. None of
+them prove a *present* human understood *this specific* change — they prove a channel was live, which is a
+different and weaker claim. AyeOps is a working implementation of the pattern the IETF's WIMSE working group,
+OpenID's CIBA, and MCP's elicitation mode are all independently converging on right now — out-of-band
+authorization the agent can't forge from inside its own context — built specifically for voice, with one
+addition none of those protocols require: the operator has to say back what they're approving, not just
+approve it.
 
 Everyone else is racing to make the agent **faster**. The bottleneck in production isn't speed — it's that
 no one will grant an LLM write access to infrastructure. AyeOps is built around that constraint
 instead of against it: reads are autonomous, writes require a live human voice reading a secret the model
-cannot access, and every change leaves a signed record with the audio attached.
+cannot access, and every change leaves a postmortem record with the verbatim authorization and audio attached.
 
 ---
 
@@ -238,15 +247,19 @@ The relay acts as the CD system — it tracks deploy history, so it knows what "
 
 ## Status
 
-**Backend: complete and live-verified.** ~1,500 lines, three runtime dependencies (FastAPI, uvicorn,
-websockets), stdlib for everything else. Offline self-check plus a full live rehearsal driver that
-synthesizes the operator's voice, so the whole demo is reproducible without a human in the room.
+**Backend and dashboard: complete and live-verified.** Offline self-check plus a full live rehearsal
+driver that synthesizes the operator's voice, so the whole demo is reproducible without a human in the
+room. Built and tested, not just planned:
+
+- **The Next.js/Tailwind dashboard** — the full event protocol is specified in
+  [`session-handoff.md`](session-handoff.md) §11
+- **Phase-scoped tools** — least privilege enforced by the platform: `propose_remediation` doesn't exist
+  in the model's schema outside an open incident window, added and removed with `session.update`
+- **The refusal** — the relay declines a remediation it already knows will fail (a restart on a service
+  crash-looping from a bad deploy) and points the model at the fix that will, with the evidence attached
+- **Blast radius stated aloud** before the authorization code arms, when the change affects anything else
 
 **Roadmap — not yet built:**
 
-- The Next.js/Tailwind dashboard (the event protocol it consumes is fully specified in
-  [`session-handoff.md`](session-handoff.md) §11)
-- **Phase-scoped tools** — least privilege enforced by the platform: `propose_remediation` won't exist in
-  the model's schema outside an open incident window
-- **The refusal** — declining a remediation the evidence says will fail, with a counter-proposal
-- **Blast radius** stated aloud before the authorization code arms
+- A deployed HTTPS URL (see `SPEC.md` F6)
+- CI badge and a public repo (workflow exists; repo goes public at submission)

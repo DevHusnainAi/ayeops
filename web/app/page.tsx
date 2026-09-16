@@ -33,19 +33,16 @@ function HeroPreview() {
   return (
     <div className="relative w-full max-w-sm">
       <div aria-hidden className="absolute -inset-6 -z-10 rounded-[2rem] bg-accent/10 blur-2xl" />
-      <div className="animate-rise rounded-xl border-2 border-accent/50 bg-panel/90 p-5 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.7)] backdrop-blur">
-        <div className="flex items-center gap-2 font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase">
-          <span className="relative flex size-2.5">
-            <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-accent" />
-            <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
-          </span>
+      <div className="animate-rise relative overflow-hidden rounded-lg border border-accent/50 bg-panel p-5">
+        <span aria-hidden className="absolute top-5 right-5 size-2 rounded-full bg-accent" />
+        <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
           Awaiting voice authorization
         </div>
         <p className="mt-3 text-[16px] font-semibold text-ink">Roll back auth-service</p>
         <p className="mt-0.5 text-[12.5px] text-muted">v2.14.1 → v2.14.0 · affects api-gateway, billing-worker</p>
         <div className="mt-4"><CodeWords words={["LIMA", "CHARLIE"]} /></div>
-        <p className="mt-3 font-mono text-[12.5px] text-muted">
-          Say: <span className="text-ink">&ldquo;Roll back auth-service, Lima Charlie.&rdquo;</span>
+        <p className="mt-3 text-[12.5px] text-muted">
+          Say: <span className="font-mono text-ink">&ldquo;Roll back auth-service, Lima Charlie.&rdquo;</span>
         </p>
         <div aria-hidden className="mt-4 h-1 overflow-hidden rounded-full bg-line">
           <div className="h-full w-2/3 bg-accent" />
@@ -117,10 +114,11 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean)
               demo for me plays both sides of the incident unattended, no mic required.
             </p>
 
-            <dl className="mt-14 grid max-w-lg grid-cols-3 gap-6 border-t border-line pt-6">
+            <dl className="mt-14 grid max-w-lg grid-cols-2 gap-6 border-t border-line pt-6 sm:grid-cols-4">
               {[
                 ["Blind", "The approval code never enters the model's context"],
                 ["Voiced", "A human reads the change back to prove they understood it"],
+                ["Refuses", "Declines a fix it already knows won't hold, and says why"],
                 ["Logged", "Every authorization ships with a recording and a timeline"],
               ].map(([k, v]) => (
                 <div key={k}>

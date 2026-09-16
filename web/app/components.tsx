@@ -3,11 +3,11 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, History, Lock, Mic,
-  MicOff, Radio, Rocket, Server, ScrollText, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
+  MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import type {
-  AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, Phase, Precedent, RelayState, Service, Status,
+  AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, Phase, Precedent, RecoveryDelta, RelayState, Service, Status,
 } from "@/lib/relay";
 
 export const BTN =
@@ -68,7 +68,7 @@ export function Panel({
 }: { title: string; aside?: ReactNode; accent?: boolean; className?: string; children: ReactNode }) {
   return (
     <section
-      className={`flex min-h-0 flex-col overflow-hidden rounded-2xl bg-panel/70 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.7)] ring-1 ${
+      className={`flex min-h-0 flex-col overflow-hidden rounded-lg bg-panel/70 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.7)] ring-1 ${
         accent ? "ring-accent/25" : "ring-white/[0.05]"
       } ${className}`}
     >
@@ -124,8 +124,15 @@ export function AppHeader({
       <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
         {BRAND}<span className="text-accent">.</span>
       </span>
+      {/* Constant, not just shown during a pending gate -- the trust claim should be visible whether or not
+          anything is currently awaiting authorization. */}
+      <span className="hidden text-[12px] text-muted-2 lg:inline">Writes need a live voice readback the model never sees</span>
       <span aria-hidden className="hidden h-5 w-px bg-line sm:block" />
       <LinkPill link={s.link} mic={s.mic} />
+      {/* Proof of work, not just a status word: a running count of what AssemblyAI has actually transcribed. */}
+      <span className="hidden items-center gap-1 font-mono text-[11px] text-muted-2 sm:flex" title="Characters transcribed this session">
+        STT {s.sttChars > 0 ? s.sttChars.toLocaleString("en-US") : "–"}
+      </span>
       {/* flex-wrap on the header lets this group drop to its own line instead of overflowing at narrow
           widths (390px overflowed horizontally before this -- Report/History/tools had nowhere to go). */}
       <div className="ml-auto flex items-center gap-2">
@@ -153,6 +160,46 @@ export function AppHeader({
   );
 }
 
+const PHASE_STEPS: Phase[] = ["triage", "mitigation", "resolved"];
+
+// Vercel's "Production Checklist" pattern, adapted: a step is either behind us (checked, struck through), the
+// one we're in (an outlined dot), or ahead (dim outline). Replaces a single color-coded pill with the actual
+// sequence, so progress reads at a glance instead of requiring the label to be parsed.
+function PhaseSteps({ phase }: { phase: Phase }) {
+  const idx = PHASE_STEPS.indexOf(phase);
+  return (
+    <div className="flex items-center" aria-label="Incident phase">
+      {PHASE_STEPS.map((step, i) => {
+        const state = i < idx || (i === idx && phase === "resolved") ? "done" : i === idx ? "current" : "pending";
+        return (
+          <span key={step} className="flex items-center">
+            {i > 0 && <span aria-hidden className="mx-1.5 h-px w-3 bg-line-strong" />}
+            <span className="flex items-center gap-1.5">
+              {state === "done" ? (
+                <CheckCircle2 aria-hidden size={14} className="text-healthy" />
+              ) : state === "current" ? (
+                <span aria-hidden className="grid size-3.5 shrink-0 place-items-center rounded-full border-2 border-accent">
+                  <span className="size-1.5 rounded-full bg-accent" />
+                </span>
+              ) : (
+                <span aria-hidden className="size-3.5 shrink-0 rounded-full border border-line-strong" />
+              )}
+              <span
+                className={`text-[12.5px] ${
+                  state === "done" ? "text-muted line-through decoration-muted-2/70"
+                  : state === "current" ? "font-medium text-ink" : "text-muted-2"
+                }`}
+              >
+                {PHASE_LABEL[step]}
+              </span>
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // The incident identity bar: id, title, phase, the clock, and the (sourced, secondary) cost estimate. Shown
 // whenever there's something to report; collapses to a quiet "systems normal" line otherwise.
 export function IncidentBar({ s }: { s: RelayState }) {
@@ -170,13 +217,23 @@ export function IncidentBar({ s }: { s: RelayState }) {
   const cost = Math.round((secs / 60) * COST_PER_MIN);
   const lead = Object.entries(s.services).find(([, v]) => v.status === "down")?.[0]
     ?? Object.entries(s.services).find(([, v]) => v.status !== "healthy")?.[0];
+  const names = Object.keys(s.services);
+  const healthy = names.filter((n) => s.services[n].status === "healthy").length;
+  const broken = names.length - healthy;
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-panel/40 px-5 py-2.5">
       <div className="flex items-center gap-2.5">
         <span className="font-mono text-[13px] font-semibold text-ink">{id}</span>
         <span className="text-[13px] text-muted">{lead ? `${lead} incident` : "Incident"}</span>
       </div>
-      <StatusPill tone={s.phase === "resolved" ? "healthy" : s.phase === "mitigation" ? "remediating" : "down"} label={PHASE_LABEL[s.phase]} />
+      {names.length > 0 && (
+        <span className="flex items-center gap-3 font-mono text-[12px] text-muted" title="Services needing attention, out of every service watched">
+          <span className={broken ? "text-degraded" : "text-healthy"}>{broken} needs attention</span>
+          <span className="text-muted-2">·</span>
+          <span>{healthy}/{names.length} healthy</span>
+        </span>
+      )}
+      <PhaseSteps phase={s.phase} />
       <span className="flex items-center gap-1.5 font-mono text-[13px] text-ink" title="Time since detection">
         <Clock3 aria-hidden size={13} className="text-muted" />
         T+{clock(secs)}
@@ -200,7 +257,7 @@ export function DemoControls({
   const active = s.phase === "triage" || s.phase === "mitigation";
   return (
     <div ref={ref} className="animate-rise absolute top-14 right-5 z-20 w-72 rounded-lg border border-line-strong bg-panel-2 p-3 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)]">
-      <p className="mb-2 flex items-center gap-1.5 font-mono text-[10.5px] font-medium tracking-[0.1em] text-degraded uppercase">
+      <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-degraded uppercase">
         <Bug aria-hidden size={12} /> Demo &amp; testing controls
       </p>
       <div className="flex flex-col gap-1.5">
@@ -224,10 +281,9 @@ export function WatchingHero({ services }: { services: Record<string, Service> }
   const names = Object.keys(services);
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-20 text-center">
-      <div className="relative flex size-24 items-center justify-center">
-        <span aria-hidden className="absolute inset-0 rounded-full bg-accent/10" style={{ animation: "pulse-ring 2.6s cubic-bezier(0.4,0,0.6,1) infinite" }} />
-        <span aria-hidden className="absolute inset-4 rounded-full bg-accent/10" style={{ animation: "pulse-ring 2.6s cubic-bezier(0.4,0,0.6,1) infinite 0.5s" }} />
-        <span aria-hidden className="relative size-2.5 rounded-full bg-accent shadow-[0_0_28px_6px_color-mix(in_oklab,var(--color-accent)_40%,transparent)]" />
+      <div className="relative flex size-8 items-center justify-center">
+        <span aria-hidden className="absolute inset-0 rounded-full bg-accent/15" style={{ animation: "pulse-ring 2.6s cubic-bezier(0.4,0,0.6,1) infinite" }} />
+        <span aria-hidden className="relative size-2.5 rounded-full bg-accent" />
       </div>
       <h1 className="mt-8 text-[1.65rem] font-semibold tracking-tight text-ink">Watching production</h1>
       <p className="mt-2 max-w-sm text-[14.5px] leading-relaxed text-muted">
@@ -250,39 +306,45 @@ export function WatchingHero({ services }: { services: Record<string, Service> }
   );
 }
 
+// A status glyph in the corner, not a colored pill -- the pattern real ops dashboards (Vercel's project cards)
+// actually use. A pill announces; an icon lets you scan a whole list at a glance.
+const STATUS_ICON: Record<Status, typeof CheckCircle2> = {
+  healthy: CheckCircle2, degraded: AlertTriangle, down: AlertTriangle, remediating: RefreshCw,
+};
+
 export function Strips({ services }: { services: Record<string, Service> }) {
   const names = Object.keys(services);
   if (!names.length) return <p className="grid h-full min-h-32 place-content-center px-4 text-center text-sm text-muted">Waiting for the first health check…</p>;
   return (
-    <ul className="space-y-2.5 p-3">
+    <ul className="space-y-2 p-3">
       {names.map((name) => {
         const svc = services[name];
         const st = STATUS[svc.status] ?? STATUS.degraded;
+        const StatusIcon = STATUS_ICON[svc.status] ?? AlertTriangle;
         return (
-          <li key={name} className="grid grid-cols-[3px_1fr] overflow-hidden rounded-md bg-panel-2 ring-1 ring-line">
-            <span aria-hidden className={`${st.dot} transition-colors duration-700`} />
-            <div className="px-4 py-3.5">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="font-mono text-[14px] text-ink">{name}</span>
-                <StatusPill tone={svc.status} label={st.label} />
+          <li key={name} className="rounded-lg bg-panel-2 p-3.5 ring-1 ring-line">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className={`grid size-7 shrink-0 place-items-center rounded-md ${st.bg}`}>
+                  <Server aria-hidden size={14} className={st.text} />
+                </span>
+                <div>
+                  <p className="text-[14px] font-semibold text-ink">{name}</p>
+                  <p className="text-[12px] text-muted">
+                    <span className="font-mono">{svc.version}</span> · deployed {svc.last_deploy}
+                  </p>
+                </div>
               </div>
-              <dl className="mt-2.5 grid grid-cols-3 divide-x divide-line font-mono text-xs">
-                {[
-                  ["version", svc.version],
-                  ["errors", pct(svc.error_rate)],
-                  ["p99", svc.p99_ms === undefined ? "—" : `${svc.p99_ms} ms`],
-                ].map(([k, v]) => (
-                  <div key={k} className="px-2.5 first:pl-0">
-                    <dt className="text-[10px] tracking-[0.06em] text-muted-2 uppercase">{k}</dt>
-                    <dd className="mt-0.5 text-ink tabular-nums">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-2.5 truncate text-xs text-muted">
-                Deployed {svc.last_deploy}
-                {svc.queue_depth ? ` · queue ${svc.queue_depth.toLocaleString("en-US")}` : ""}
-                {svc.container ? ` · ${svc.container}` : ""}
-              </p>
+              <StatusIcon
+                aria-label={st.label}
+                size={16}
+                className={`mt-0.5 shrink-0 ${st.text} ${svc.status === "remediating" ? "animate-spin" : ""}`}
+              />
+            </div>
+            <div className="mt-3 flex items-center gap-4 border-t border-line pt-2.5 font-mono text-[11px] text-muted">
+              <span>err <span className="text-ink/80">{pct(svc.error_rate)}</span></span>
+              <span>p99 <span className="text-ink/80">{svc.p99_ms === undefined ? "—" : `${svc.p99_ms}ms`}</span></span>
+              {svc.queue_depth ? <span>queue <span className="text-ink/80">{svc.queue_depth.toLocaleString("en-US")}</span></span> : null}
             </div>
           </li>
         );
@@ -427,7 +489,10 @@ function DiffBlock({ diff, crashLine }: { diff: string; crashLine?: string }) {
         </div>
       ))}
       {crashLine && (
-        <div className="mt-2 border-t border-line-strong pt-2 text-down">→ crashes at {crashLine}</div>
+        <div className="mt-2 flex items-center gap-1.5 border-t border-line-strong pt-2 text-down">
+          <span aria-hidden className="rounded bg-down/15 px-1 text-[10px] font-semibold">E1</span>
+          crashes at {crashLine}
+        </div>
       )}
     </div>
   );
@@ -441,10 +506,10 @@ const GATE_TITLE: Record<Gate["state"], string> = {
 // (this is what the agent remembers, not what it's waiting on) so the two are never mistaken for each other.
 export function PrecedentCard({ precedent }: { precedent: Precedent }) {
   return (
-    <div className="animate-rise flex items-start gap-3 rounded-xl bg-panel/70 px-4 py-3.5 shadow-[0_16px_36px_-24px_rgba(0,0,0,0.7)] ring-1 ring-accent/20">
+    <div className="animate-rise flex items-start gap-3 rounded-lg bg-panel/70 px-4 py-3.5 ring-1 ring-line">
       <History aria-hidden size={16} className="mt-0.5 shrink-0 text-accent" />
       <div>
-        <p className="font-mono text-[10.5px] font-semibold tracking-[0.1em] text-accent uppercase">Seen this before</p>
+        <p className="text-[11px] font-semibold tracking-wide text-accent uppercase">Seen this before</p>
         <p className="mt-1 text-[13.5px] text-ink">
           {precedent.service} failed the same way before, at {hms(precedent.resolved_at * 1000)}
           {" — "}
@@ -468,22 +533,17 @@ export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"
   return (
     <div
       key={gate.code}
-      className={`animate-rise relative overflow-hidden rounded-xl border-2 p-5 ${
-        awaiting && !expired
-          ? "border-accent/60 bg-accent/[0.05] shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_20%,transparent),0_20px_50px_-20px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]"
-          : "border-line bg-panel"
+      className={`animate-rise relative overflow-hidden rounded-lg border p-5 ${
+        awaiting && !expired ? "border-accent/50 bg-panel" : "border-line bg-panel"
       }`}
     >
       {awaiting && !expired && (
-        <span aria-hidden className="absolute top-4 right-4 flex size-2.5">
-          <span className="animate-pulse-ring absolute inline-flex size-full rounded-full bg-accent" />
-          <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
-        </span>
+        <span aria-hidden className="absolute top-5 right-5 size-2 rounded-full bg-accent" />
       )}
-      <div className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+      <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
         <Lock aria-hidden size={13} className={awaiting && !expired ? "text-accent" : "text-muted"} />
         <span>{expired ? "Code expired" : GATE_TITLE[gate.state]}</span>
-        {awaiting && !expired && <span className="ml-auto tabular-nums">{Math.ceil(left / 1000)}s left</span>}
+        {awaiting && !expired && <span className="ml-auto font-mono tabular-nums normal-case">{Math.ceil(left / 1000)}s left</span>}
       </div>
       <p className="mt-3 text-[17px] font-semibold text-ink">{changeText}</p>
       {gate.affected?.length ? <p className="mt-0.5 text-[13px] text-muted">Affects {gate.affected.join(", ")}</p> : null}
@@ -492,8 +552,8 @@ export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"
           <div className="mt-4">
             <CodeWords words={words} />
           </div>
-          <p className="mt-3 font-mono text-[13px] text-muted">
-            Say: <span className="text-ink">&ldquo;{ACTION[gate.action] ?? gate.action} {gate.service}, {words.join(" ")}.&rdquo;</span>
+          <p className="mt-3 text-[13px] text-muted">
+            Say: <span className="font-mono text-ink">&ldquo;{ACTION[gate.action] ?? gate.action} {gate.service}, {words.join(" ")}.&rdquo;</span>
           </p>
           <div aria-hidden className="mt-4 h-1 overflow-hidden rounded-full bg-line">
             <div className="h-full bg-accent transition-[width] duration-200 ease-linear" style={{ width: `${(left / 120000) * 100}%` }} />
@@ -502,7 +562,7 @@ export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"
       )}
       {gate.evidence && (
         <div className="mt-4 border-t border-line pt-3">
-          <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-1.5 font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase hover:text-ink">
+          <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase hover:text-ink">
             {expanded ? <ChevronUp aria-hidden size={13} /> : <ChevronDown aria-hidden size={13} />}
             Root cause
           </button>
@@ -543,11 +603,11 @@ export function LiveAgentRequest({ req }: { req: AgentRequest }) {
   const pending = req.state === "pending";
   const left = req.expiresAt ? Math.max(0, req.expiresAt - now) : 0;
   return (
-    <div className={`animate-rise rounded-xl border-2 p-5 ${pending ? "border-down/50 bg-down/[0.05]" : "border-line bg-panel"}`}>
-      <div className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+    <div className={`animate-rise rounded-lg border p-5 ${pending ? "border-down/50 bg-panel" : "border-line bg-panel"}`}>
+      <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
         <Bot aria-hidden size={13} className={pending ? "text-down" : "text-muted"} />
         <span>{AGENT_REQUEST_TITLE[req.state]}</span>
-        {pending && <span className="ml-auto tabular-nums">{Math.ceil(left / 1000)}s left</span>}
+        {pending && <span className="ml-auto font-mono tabular-nums normal-case">{Math.ceil(left / 1000)}s left</span>}
       </div>
       <p className="mt-3 text-[17px] font-semibold text-ink">
         {req.agent} wants to run <span className="font-mono">{req.command}</span>
@@ -591,7 +651,7 @@ function FeedRow({ item }: { item: FeedItem }) {
       const who = item.who === "agent" ? "Agent" : "You";
       return (
         <div className="grid grid-cols-[4.5rem_1fr] gap-3 py-1.5 text-[14px] leading-snug">
-          <span className={`pt-0.5 font-mono text-[10.5px] font-semibold tracking-[0.08em] uppercase ${item.who === "agent" ? "text-accent" : "text-ink"}`}>{who}</span>
+          <span className={`pt-0.5 text-[11px] font-semibold tracking-wide uppercase ${item.who === "agent" ? "text-accent" : "text-ink"}`}>{who}</span>
           <span className={item.who === "agent" ? "text-ink" : "text-ink/85"}>
             {item.text}
             {item.interrupted ? " —" : ""}
@@ -610,7 +670,7 @@ function FeedRow({ item }: { item: FeedItem }) {
       return (
         <div className="flex items-center gap-3 py-2.5">
           <span aria-hidden className="h-px flex-1 bg-line" />
-          <span className="font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase">
+          <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">
             {item.phase === "resolved" ? "Resolved" : `${PHASE_LABEL[item.phase]} started`}
           </span>
           <span aria-hidden className="h-px flex-1 bg-line" />
@@ -637,6 +697,16 @@ function FeedRow({ item }: { item: FeedItem }) {
           <span>
             Matches a prior {item.precedent.service} incident — a {item.precedent.action.replace("_", " ")} fixed it
             in {item.precedent.mttr_s}s
+          </span>
+        </div>
+      );
+    case "refusal":
+      return (
+        <div className="flex items-start gap-2 rounded-md bg-healthy/10 px-3 py-2 text-[12.5px] text-healthy">
+          <ShieldCheck aria-hidden size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Declined a {item.requested} on <span className="font-mono">{item.service}</span> — {item.evidence.commit}{" "}
+            ({item.evidence.message}) means it&rsquo;ll crash-loop again; proposed a {item.proposed.replace("_", " ")} instead
           </span>
         </div>
       );
@@ -667,13 +737,32 @@ export function ActivityFeed({ s }: { s: RelayState }) {
       {s.feed.map((item) => <FeedRow key={item.id} item={item} />)}
       {s.live && (
         <div className="grid grid-cols-[4.5rem_1fr] gap-3 py-1.5 text-[14px] leading-snug text-muted">
-          <span className="pt-0.5 font-mono text-[10.5px] tracking-[0.08em] uppercase">{who(s.live.who)}</span>
+          <span className="pt-0.5 text-[11px] tracking-wide uppercase">{who(s.live.who)}</span>
           <span>
             {s.live.text}
             <span aria-hidden className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 animate-pulse bg-muted" />
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+// The receipt that a fix actually worked, not just that it ran -- error rate and p99 before the incident opened
+// versus after it resolved, per service. Deliberately not a colored diff bar: the number is the point.
+function RecoveryRow({ service, delta }: { service: string; delta: RecoveryDelta }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-[13px]">
+      <span className="text-ink">{service}</span>
+      <span className="flex items-center gap-4 font-mono text-[12px] text-muted">
+        <span>
+          err {pct(delta.error_rate_before)} <span className="text-muted-2">→</span>{" "}
+          <span className={delta.error_rate_after > 0 ? "text-degraded" : "text-healthy"}>{pct(delta.error_rate_after)}</span>
+        </span>
+        <span>
+          p99 {delta.p99_before}ms <span className="text-muted-2">→</span> <span className="text-ink/80">{delta.p99_after}ms</span>
+        </span>
+      </span>
     </div>
   );
 }
@@ -687,7 +776,7 @@ export function ReportDrawer({ s, open, onClose }: { s: RelayState; open: boolea
       <button type="button" aria-label="Close report" onClick={onClose} className="absolute inset-0 bg-black/60" />
       <div className="animate-rise relative flex h-full w-full max-w-2xl flex-col border-l border-line bg-board shadow-[-24px_0_60px_-20px_rgba(0,0,0,0.6)]">
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <h2 className="flex items-center gap-2 font-mono text-[11px] font-semibold tracking-[0.1em] text-muted uppercase">
+          <h2 className="flex items-center gap-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
             <FileText aria-hidden size={13} /> Incident report
           </h2>
           <button type="button" onClick={onClose} className="rounded-md p-1.5 text-muted hover:bg-panel-2 hover:text-ink">
@@ -704,21 +793,21 @@ export function ReportDrawer({ s, open, onClose }: { s: RelayState; open: boolea
             <div className="space-y-6 px-5 py-6">
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-lg border border-line bg-panel-2 px-4 py-3">
-                  <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">Detected</p>
+                  <p className="text-[10.5px] tracking-wide text-muted uppercase">Detected</p>
                   <p className="mt-1 font-mono text-sm text-ink">{s.incidentAt ? hms(s.incidentAt) : "—"}</p>
                 </div>
                 <div className="rounded-lg border border-line bg-panel-2 px-4 py-3">
-                  <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">Recovered</p>
+                  <p className="text-[10.5px] tracking-wide text-muted uppercase">Recovered</p>
                   <p className="mt-1 font-mono text-sm text-ink">{s.resolvedAt ? hms(s.resolvedAt) : "—"}</p>
                 </div>
-                <div className="rounded-lg border border-accent/30 bg-accent/[0.06] px-4 py-3">
-                  <p className="font-mono text-[10px] tracking-[0.1em] text-accent uppercase">Time to recover</p>
+                <div className="rounded-lg border border-line bg-panel-2 px-4 py-3">
+                  <p className="text-[10.5px] tracking-wide text-accent uppercase">Time to recover</p>
                   <p className="mt-1 font-mono text-sm text-ink">{s.ttr}s</p>
                 </div>
               </div>
               {s.feed.filter((f): f is FeedItem & { kind: "gate" } => f.kind === "gate" && f.gate.state === "approved").map((g) => (
                 <div key={g.id} className="rounded-lg border border-line bg-panel-2 px-4 py-3.5">
-                  <p className="font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Voice-authorized change</p>
+                  <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Voice-authorized change</p>
                   <p className="mt-1.5 text-[14px] text-ink">
                     {ACTION[g.gate.action] ?? g.gate.action} {g.gate.service}
                     {g.gate.change?.includes(" to ") ? ` · ${g.gate.change.replace(" to ", " → ")}` : ""}
@@ -726,8 +815,16 @@ export function ReportDrawer({ s, open, onClose }: { s: RelayState; open: boolea
                   <p className="mt-1 text-[13px] text-muted">Authorized: &ldquo;{g.gate.heard}&rdquo;</p>
                 </div>
               ))}
+              {s.deltas && Object.keys(s.deltas).length > 0 && (
+                <div className="rounded-lg border border-line bg-panel-2 px-4 py-3.5">
+                  <p className="mb-2.5 text-[11px] font-semibold tracking-wide text-muted uppercase">Recovery</p>
+                  <div className="space-y-2">
+                    {Object.entries(s.deltas).map(([svc, d]) => <RecoveryRow key={svc} service={svc} delta={d} />)}
+                  </div>
+                </div>
+              )}
               <div>
-                <p className="mb-2 font-mono text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">Timeline</p>
+                <p className="mb-2 text-[11px] font-semibold tracking-wide text-muted uppercase">Timeline</p>
                 <div className="rounded-lg border border-line bg-panel-2 px-4 py-2">
                   {s.feed.map((item) => (
                     <div key={item.id} className="grid grid-cols-[4.5rem_1fr] gap-3 border-b border-line py-2 text-[13px] last:border-0">
@@ -753,7 +850,7 @@ export function ApiPanel({ events }: { events: ApiEvent[] }) {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-5 py-2 text-left font-mono text-[10.5px] font-semibold tracking-[0.1em] text-muted uppercase transition-colors hover:text-ink"
+        className="flex w-full items-center justify-between px-5 py-2 text-left text-[11px] font-semibold tracking-wide text-muted uppercase transition-colors hover:text-ink"
       >
         <span className="flex items-center gap-2">
           <Activity aria-hidden size={12} className="text-accent" />
@@ -765,9 +862,9 @@ export function ApiPanel({ events }: { events: ApiEvent[] }) {
         </span>
       </button>
       {open && (
-        <ol className="max-h-56 overflow-y-auto border-t border-line px-5 py-2 font-mono text-xs">
+        <ol className="max-h-56 overflow-x-auto overflow-y-auto border-t border-line px-5 py-2 font-mono text-xs">
           {[...events].reverse().map((e) => (
-            <li key={e.id} className="grid grid-cols-[5.5rem_1.25rem_13rem_1fr] gap-2 py-1">
+            <li key={e.id} className="grid w-max min-w-full grid-cols-[5.5rem_1.25rem_13rem_1fr] gap-2 py-1">
               <span className="text-muted-2 tabular-nums">{hms(e.at)}</span>
               <span className={e.dir === "out" ? "text-accent" : "text-ink/70"} title={e.dir === "out" ? "Sent by the relay" : "Received"}>
                 {e.dir === "out" ? "→" : "←"}

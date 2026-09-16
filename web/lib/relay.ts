@@ -45,6 +45,9 @@ export type ApiEvent = { id: number; at: number; dir: "in" | "out"; type: string
 export type LogLine = { id: number; service: string; line: string; level: string };
 // F10a: the most recent past incident on a service, surfaced when a new one opens on the same service.
 export type Precedent = { service: string; action: string; root_cause: string; mttr_s: number; resolved_at: number };
+// Before/after health for each service the incident touched -- the receipt that the fix actually worked, not
+// just that it ran.
+export type RecoveryDelta = { error_rate_before: number; error_rate_after: number; p99_before: number; p99_after: number };
 
 // The unified Activity feed: every event an operator would want to see in one chronological order, instead of
 // speech, tool calls, phase changes, authorization and alerts each fighting for their own panel.
@@ -56,6 +59,7 @@ export type FeedItem =
   | { id: number; at: number; kind: "agent_request"; req: AgentRequest }
   | { id: number; at: number; kind: "flag"; service: string; line: string }
   | { id: number; at: number; kind: "precedent"; precedent: Precedent }
+  | { id: number; at: number; kind: "refusal"; service: string; requested: string; proposed: string; evidence: Evidence }
   | { id: number; at: number; kind: "link"; text: string; tone: "warn" | "ok" | "error" };
 // Plain Omit<Union, K> collapses to only the keys shared across every member; this distributes it per-variant.
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -81,6 +85,8 @@ export type RelayState = {
   latency?: number;
   events: ApiEvent[];
   report?: string;
+  deltas?: Record<string, RecoveryDelta>;
+  sttChars: number; // running proof-of-work: characters AssemblyAI has actually transcribed this session
   error?: string;
   agentSpeaking: boolean;
   operatorSpeaking: boolean;
@@ -95,7 +101,7 @@ type Action =
 
 const initial: RelayState = {
   started: false, link: "idle", mic: "off", phase: "starting", services: {}, logs: [], feed: [], live: null,
-  gate: null, events: [], agentSpeaking: false, operatorSpeaking: false,
+  gate: null, events: [], agentSpeaking: false, operatorSpeaking: false, sttChars: 0,
 };
 
 const TOOL: Record<string, string> = {
@@ -157,7 +163,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
         feed: ev.phase === s.phase ? s.feed : feed({ kind: "phase", phase: ev.phase }),
       };
     case "relay.postmortem":
-      return { ...s, report: ev.markdown, ttr: ev.time_to_recover_s };
+      return { ...s, report: ev.markdown, ttr: ev.time_to_recover_s, deltas: ev.recovery };
     case "relay.gate": {
       let gate: Gate;
       if (ev.state === "awaiting") {
@@ -179,6 +185,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       return { ...s, progress: ev.text };
     case "relay.flag":
       return { ...s, feed: feed({ kind: "flag", service: ev.service, line: ev.line }) };
+    case "relay.refusal":
+      return { ...s, feed: feed({ kind: "refusal", service: ev.service, requested: ev.requested, proposed: ev.proposed, evidence: ev.evidence }) };
     case "relay.precedent": {
       const precedent: Precedent = {
         service: ev.service, action: ev.action, root_cause: ev.root_cause, mttr_s: ev.mttr_s, resolved_at: ev.resolved_at,
@@ -236,10 +244,13 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       return { ...s, live: { who: "agent", text: d.startsWith(prev) ? d : `${prev} ${d}`.trim() } };
     }
     case "transcript.user":
-      return { ...s, live: null, events: api("in", t, clip(textOf(ev))), feed: feed({ kind: "speech", who: "operator", text: textOf(ev) }) };
+      return {
+        ...s, live: null, events: api("in", t, clip(textOf(ev))), sttChars: s.sttChars + textOf(ev).length,
+        feed: feed({ kind: "speech", who: "operator", text: textOf(ev) }),
+      };
     case "transcript.agent":
       return {
-        ...s, live: null, events: api("in", t, clip(textOf(ev))),
+        ...s, live: null, events: api("in", t, clip(textOf(ev))), sttChars: s.sttChars + textOf(ev).length,
         feed: feed({ kind: "speech", who: "agent", text: textOf(ev).trim(), interrupted: ev.interrupted }),
       };
     case "input.speech.started":
