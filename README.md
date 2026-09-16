@@ -35,6 +35,7 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 - [Measured](#measured)
 - [Competitors](#competitors)
 - [Security posture](#security-posture)
+- [Limitations](#limitations)
 - [Status](#status)
 - [Learn more](#learn-more)
 
