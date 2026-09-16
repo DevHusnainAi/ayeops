@@ -20,6 +20,11 @@ language model can fake: your voice, reading a one-time code it has never seen.
 Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-api">AssemblyAI Voice Agent API</a>.
 </p>
 
+<p align="center">
+<a href="https://github.com/DevHusnainAi/ayeops/actions/workflows/ci.yml"><img src="https://github.com/DevHusnainAi/ayeops/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0"/></a>
+</p>
+
 ---
 
 ## Table of contents
@@ -166,6 +171,25 @@ cannot access, and every change leaves a postmortem record with the verbatim aut
   forge an authorization.
 - Every authorized change ships with the verbatim readback, a two-channel recording, and a turn-by-turn
   timeline — [more in the engineering deep-dive](docs/ENGINEERING.md).
+
+---
+
+## Limitations
+
+Stated up front, because the whole point is trustworthy authorization:
+
+- **Voice is one factor, not proof of a person.** A cloned voice reading a code from a compromised screen would
+  pass. Speaker verification is on the roadmap and not implemented.
+- **Logs reach the model's context.** Whoever controls a log line can influence what the agent *proposes*. It
+  still cannot execute anything, and you see the exact change before authorizing, but the risk is real: the
+  demo deliberately includes this attack.
+- **The demo cluster is a sandbox.** `INFRA=sim` is in memory; `INFRA=docker` runs real containers locally.
+  Neither touches your infrastructure.
+- **No accounts, roles or tenant isolation yet.** Run it where only your team can reach it.
+- **`session.resume` never worked against the live API** in 11 variants we tried, so the relay recovers by
+  opening a new session briefed from its own incident record instead.
+
+See [SECURITY.md](SECURITY.md) to report anything exploitable.
 
 ---
 
