@@ -12,3 +12,6 @@ memory/
 SPEC.md
 research.md
 session-handoff.md
+
+# autopilot voice clips are generated locally (backend/autopilot/gen_clips.py), not shipped
+backend/autopilot/clips/
