@@ -2,13 +2,18 @@
   <rect width="1280" height="320" fill="#0a0b0d"/>
   <rect x="0" y="318" width="1280" height="2" fill="#23262b"/>
 
+  <!-- icon mark -->
+  <rect x="64" y="100" width="48" height="48" rx="9" fill="#121417" stroke="#23262b" stroke-width="1.5"/>
+  <text x="76" y="136" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace"
+        font-size="30" font-weight="700" fill="#eef0f2">A<tspan fill="#22e0d8">.</tspan></text>
+
   <!-- wordmark -->
-  <text x="64" y="150" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace"
+  <text x="132" y="150" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace"
         font-size="40" font-weight="700" letter-spacing="1.5" fill="#eef0f2">AYEOPS<tspan fill="#22e0d8">.</tspan></text>
 
   <!-- eyebrow -->
-  <circle cx="70" cy="181" r="3" fill="#34d399"/>
-  <text x="82" y="185" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace"
+  <circle cx="138" cy="181" r="3" fill="#34d399"/>
+  <text x="150" y="185" font-family="ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', monospace"
         font-size="12.5" letter-spacing="3" fill="#8b929c">VOICE INCIDENT COMMAND</text>
 
   <!-- mechanism line -->
