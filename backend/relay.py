@@ -154,9 +154,9 @@ PARTIAL_NUDGE_DELAY_S = 2.0  # a partial code match is the one case most likely 
 # All tools use hold mode: they return in ~100 ms, and interactive filler ("let me check...") only delays results,
 # which can't be delivered until the filler finishes. timeout_seconds covers that wait too.
 # Phase-scoped: propose_remediation exists in the schema only while an incident is open (added in open_incident,
-# removed in resolve). Verified live (research.md, 2026-09-14) that a tool added mid-session via session.update
-# is callable and one removed isn't -- so this is real least privilege, not prompt-only, and the swap is visible
-# in AssemblyAI's own session timeline (config_changes).
+# removed in resolve). Verified live that a tool added mid-session via session.update is callable and one removed
+# isn't -- so this is real least privilege, not prompt-only, and the swap is visible in AssemblyAI's own session
+# timeline (config_changes).
 READ_TOOLS = [
     {
         "type": "function",

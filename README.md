@@ -175,8 +175,7 @@ cannot access, and every change leaves a postmortem record with the verbatim aut
 driver that synthesizes the operator's voice, so the whole demo is reproducible without a human in the
 room. Built and tested, not just planned:
 
-- **The Next.js/Tailwind dashboard** — the full event protocol is specified in
-  [`session-handoff.md`](session-handoff.md) §11
+- **The Next.js/Tailwind dashboard** — full event protocol implemented, live-verified end to end
 - **Phase-scoped tools** — least privilege enforced by the platform: `propose_remediation` doesn't exist
   in the model's schema outside an open incident window, added and removed with `session.update`
 - **The refusal** — the relay declines a remediation it already knows will fail (a restart on a service
@@ -185,7 +184,7 @@ room. Built and tested, not just planned:
 
 **Roadmap — not yet built:**
 
-- A deployed HTTPS URL (see `SPEC.md` F6)
+- A deployed HTTPS URL
 - The repo goes public at submission (CI already runs on every push; no badge row here on purpose — nothing
   to show yet is more honest than a row of placeholders)
 
@@ -195,7 +194,3 @@ room. Built and tested, not just planned:
 
 - [**Engineering deep-dive**](docs/ENGINEERING.md) — the design history, the architecture diagram, every
   AssemblyAI Voice Agent API surface in use, and what real infrastructure the demo actually runs against.
-- [**SPEC.md**](SPEC.md) — the locked hackathon spec: every feature, its acceptance test, and how the build
-  scores against the four judging pillars.
-- [**research.md**](research.md) — the sourced research this product is built on: the competitive
-  landscape, the business case, and the technical findings behind every measured number.

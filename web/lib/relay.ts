@@ -1,7 +1,7 @@
 "use client";
 
 // One hook owns the relay connection: the WebSocket, mic capture, agent playback, and the dashboard state that the
-// relay's events drive. The browser protocol is specified in session-handoff.md section 11.
+// relay's events drive.
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 export type Status = "healthy" | "degraded" | "down" | "remediating";

@@ -1,4 +1,4 @@
-"""Live probe: which session.resume variants does the server accept? (research.md section 6)
+"""Live probe: which session.resume variants does the server accept?
 Run from repo root: uv run --project backend --env-file backend/.env python backend/probes/probe_resume.py
 Each variant: open a real session, stream silence until the greeting finishes, cut the link, then try to resume."""
 import asyncio, base64, json, os, urllib.request, websockets
