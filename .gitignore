@@ -7,3 +7,8 @@ node_modules/
 incidents/
 memory/
 .playwright-mcp/
+
+# private working docs -- never publish
+SPEC.md
+research.md
+session-handoff.md
