@@ -1,10 +1,24 @@
-# AyeOps
+<div align="center">
+  <img src="docs/brand/banner.svg" alt="AyeOps — voice-authorized incident command" width="100%" />
+</div>
 
-**A voice-authorized incident commander for production infrastructure.**
-Built on the [AssemblyAI Voice Agent API](https://www.assemblyai.com/docs/voice-agents/voice-agent-api).
-
+<p align="center">
 It pages you when production breaks, diagnoses the cause on its own, and then asks for something no
 language model can fake: your voice, reading a one-time code it has never seen.
+</p>
+
+<p align="center">
+<sub>
+<strong>Blind</strong> — the approval code never enters the model's context &nbsp;·&nbsp;
+<strong>Voiced</strong> — a human reads the change back to prove they understood it &nbsp;·&nbsp;
+<strong>Refuses</strong> — declines a fix it already knows won't hold, and says why &nbsp;·&nbsp;
+<strong>Logged</strong> — every authorization ships with a recording and a timeline
+</sub>
+</p>
+
+<p align="center">
+Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-api">AssemblyAI Voice Agent API</a>.
+</p>
 
 ---
 
@@ -262,4 +276,5 @@ room. Built and tested, not just planned:
 **Roadmap — not yet built:**
 
 - A deployed HTTPS URL (see `SPEC.md` F6)
-- CI badge and a public repo (workflow exists; repo goes public at submission)
+- The repo goes public at submission (CI already runs on every push; no badge row here on purpose — nothing
+  to show yet is more honest than a row of placeholders)
