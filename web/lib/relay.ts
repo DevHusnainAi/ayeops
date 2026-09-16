@@ -48,6 +48,9 @@ export type Precedent = { service: string; action: string; root_cause: string; m
 // Before/after health for each service the incident touched -- the receipt that the fix actually worked, not
 // just that it ran.
 export type RecoveryDelta = { error_rate_before: number; error_rate_after: number; p99_before: number; p99_after: number };
+// Bring your own incident: a custom service name and error line the user provides before the session starts.
+// null means "use the default scenario."
+export type CustomScenario = { service: string; errorLine?: string } | null;
 
 // The unified Activity feed: every event an operator would want to see in one chronological order, instead of
 // speech, tool calls, phase changes, authorization and alerts each fighting for their own panel.
@@ -324,7 +327,7 @@ export function useRelay() {
     src.onended = () => r.sources.delete(src);
   }, []);
 
-  const start = useCallback(async (withMic: boolean, autopilot = false) => {
+  const start = useCallback(async (withMic: boolean, autopilot = false, scenario: CustomScenario = null) => {
     const r = a.current;
     if (r.ws) return;
     // Two contexts, both created on this click so autoplay rules allow both: ctx captures the mic at the
@@ -370,6 +373,7 @@ export function useRelay() {
     // ponytail: autopilot's synthesized readback plays through the same channel as the agent's voice rather than
     // a dedicated operator-synth graph -- fine since nothing else is ever "speaking" in an unattended run.
     if (autopilot) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "demo.autopilot" })), { once: true });
+    if (scenario) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "relay.scenario", service: scenario.service, errorLine: scenario.errorLine })), { once: true });
     ws.onopen = () => {
       r.opened = true;
     };

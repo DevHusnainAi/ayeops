@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BRAND } from "@/lib/brand";
-import { useRelay } from "@/lib/relay";
+import { useRelay, type CustomScenario } from "@/lib/relay";
 import {
   ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
   LiveAgentRequest, LiveClearance, LogTape, Panel, PrecedentCard, ReportDrawer, Speaking, Strips, Waveform,
@@ -62,7 +62,12 @@ function HeroPreview() {
   );
 }
 
-function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean) => void }) {
+function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean, scenario?: CustomScenario) => void }) {
+  const [svc, setSvc] = useState("");
+  const [errLine, setErrLine] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+  const scenario: CustomScenario = svc.trim() ? { service: svc.trim(), ...(errLine.trim() ? { errorLine: errLine.trim() } : {}) } : null;
+
   return (
     <main className="relative min-h-dvh overflow-hidden">
       <div
@@ -95,16 +100,16 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean)
               authorize the fix — by reading a code the AI is never shown.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <button type="button" className={`${BTN} px-5 py-2.5 text-[14px]`} onClick={() => onStart(true)}>
+              <button type="button" className={`${BTN} px-5 py-2.5 text-[14px]`} onClick={() => onStart(true, undefined, scenario)}>
                 Start session
               </button>
-              <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-[14px]`} onClick={() => onStart(false, true)}>
+              <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-[14px]`} onClick={() => onStart(false, true, scenario)}>
                 Run the demo for me
               </button>
               <button
                 type="button"
                 className="px-1 py-2.5 text-[14px] text-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-muted"
-                onClick={() => onStart(false)}
+                onClick={() => onStart(false, false, scenario)}
               >
                 Watch without a microphone
               </button>
@@ -113,6 +118,48 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean)
               Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. Run the
               demo for me plays both sides of the incident unattended, no mic required.
             </p>
+
+            {/* Bring your own incident — personalize the scenario with a real service name and error line */}
+            <div className="mt-8 max-w-lg">
+              <button
+                type="button"
+                onClick={() => setShowCustom((o) => !o)}
+                className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px] text-muted transition-colors hover:border-accent/40 hover:text-ink"
+              >
+                <span aria-hidden className={`text-[10px] transition-transform ${showCustom ? "rotate-90" : ""}`}>▶</span>
+                Bring your own incident
+              </button>
+              {showCustom && (
+                <div className="mt-3 space-y-3 rounded-lg border border-line bg-panel/60 p-4">
+                  <div>
+                    <label htmlFor="byoi-svc" className="mb-1 block text-[11.5px] text-muted">Service name</label>
+                    <input
+                      id="byoi-svc"
+                      type="text"
+                      placeholder="e.g. payment-processor"
+                      value={svc}
+                      onChange={(e) => setSvc(e.target.value)}
+                      className="w-full rounded-md border border-line bg-panel-2 px-3 py-1.5 font-mono text-[13px] text-ink placeholder:text-muted-2 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="byoi-err" className="mb-1 block text-[11.5px] text-muted">Error line from your logs (optional)</label>
+                    <input
+                      id="byoi-err"
+                      type="text"
+                      placeholder="e.g. FATAL connection pool exhausted, no healthy upstream"
+                      value={errLine}
+                      onChange={(e) => setErrLine(e.target.value)}
+                      className="w-full rounded-md border border-line bg-panel-2 px-3 py-1.5 font-mono text-[13px] text-ink placeholder:text-muted-2 focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-2">
+                    The agent will triage your service as if it broke. Everything else — voice session, readback,
+                    authorization — works exactly the same.
+                  </p>
+                </div>
+              )}
+            </div>
 
             <dl className="mt-14 grid max-w-lg grid-cols-2 gap-6 border-t border-line pt-6 sm:grid-cols-4">
               {[

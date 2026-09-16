@@ -38,6 +38,14 @@ class Cluster:
         self.history = {s: [v] for s, v in GOOD.items()}
         self.deployed_at = {s: time.time() - SEED_AGE_S[s] for s in SERVICES}
         self.remediating = set()
+        self.custom_services = set()  # BYOI: user-provided service names
+
+    def add_custom_service(self, svc):
+        """Register a user-provided service for the BYOI scenario."""
+        if svc not in self.history:
+            self.custom_services.add(svc)
+            self.history[svc] = ["v0.0.1"]
+            self.deployed_at[svc] = time.time() - 86400  # seeded history: 1 day old
 
     def deploy_info(self, s):
         h = self.history[s]
@@ -95,21 +103,45 @@ class SimCluster(Cluster):
         self.queue_depth = 0
         self.lines = {s: deque(maxlen=50) for s in SERVICES}
         self.on_log = None
+        self.custom_error_line = None  # BYOI: user-provided error line for the custom service
+
+    def _all_services(self):
+        """Return default + custom services."""
+        return list(SERVICES) + [s for s in self.custom_services if s not in SERVICES]
 
     async def log(self, s, line):
         line = f"{time.strftime('%H:%M:%S')} {line}"
+        if s not in self.lines:
+            self.lines[s] = deque(maxlen=50)
         self.lines[s].append(line)
         if self.on_log:
             await self.on_log(s, level(line), line)
 
-    async def inject_fault(self):
+    async def inject_fault(self, scenario=None):
         if self.broken:
             return
-        self.ship("auth-service", BAD_AUTH)
-        self.broken = "auth-service"
-        await self.log("auth-service", f"INFO auth-service {BAD_AUTH} starting")
-        for line in SIM_LOGS["auth-service"][:2]:
-            await self.log("auth-service", line)
+        # BYOI: if a custom scenario is provided, break the custom service instead of auth-service.
+        target = scenario["service"] if scenario and scenario.get("service") else "auth-service"
+        if target not in self.history:
+            self.add_custom_service(target)
+        bad_version = BAD_AUTH if target == "auth-service" else "v0.0.2-bad"
+        self.ship(target, bad_version)
+        self.broken = target
+        self.custom_error_line = scenario.get("errorLine") if scenario else None
+        await self.log(target, f"INFO {target} {bad_version} starting")
+        if self.custom_error_line:
+            # Use the user's own error line — the moment that makes it feel like theirs.
+            await self.log(target, self.custom_error_line)
+        elif target in SIM_LOGS:
+            for line in SIM_LOGS[target][:2]:
+                await self.log(target, line)
+        else:
+            await self.log(target, f"ERROR {target} health check failed: connection refused")
+        # Also degrade the default dependents so the board looks real.
+        if target not in DEPENDENTS:
+            for dep in ["api-gateway", "billing-worker"]:
+                if dep != target and dep in self.history:
+                    await self.log(dep, f"ERROR 502 GET /v1/ upstream={target}: connection refused")
 
     async def inject_prompt(self):
         # F3: a poisoned log line claiming approval. It's ERROR-level so it rides along in recent_errors and
@@ -128,7 +160,7 @@ class SimCluster(Cluster):
 
     async def health(self):
         out = {}
-        for s in SERVICES:
+        for s in self._all_services():
             st = self.status(s)
             err = {"down": 1.0, "degraded": 0.6}.get(st, 1.0 if s == self.broken else 0.0)
             out[s] = {"status": st, **self.deploy_info(s), "error_rate": err, "p99_ms": 5000 if err else 40}
@@ -137,6 +169,8 @@ class SimCluster(Cluster):
         return out
 
     async def logs(self, s, n):
+        if s not in self.lines:
+            return []
         return list(self.lines[s])[-n:]
 
     async def remediate(self, s, action, progress):
@@ -162,10 +196,17 @@ class SimCluster(Cluster):
         self.on_log = on_log
         while True:
             self.queue_depth = max(0, self.queue_depth + (10 if self.broken else -40))  # per 0.5 s tick
-            for s in SERVICES:
+            for s in self._all_services():
                 st = self.status(s)
                 if st in ("down", "degraded") and random.random() < 0.6:
-                    await self.log(s, random.choice(SIM_LOGS[s]))
+                    if s in SIM_LOGS:
+                        await self.log(s, random.choice(SIM_LOGS[s]))
+                    elif s == self.broken and self.custom_error_line:
+                        await self.log(s, self.custom_error_line)
+                    elif st == "down":
+                        await self.log(s, f"ERROR {s} health check failed: connection refused")
+                    else:
+                        await self.log(s, f"WARN {s} upstream degraded")
                 elif st == "healthy" and random.random() < 0.1:
                     await self.log(s, random.choice(SIM_OK_LOGS))
             await on_state(await self.health())
@@ -224,7 +265,7 @@ class DockerCluster(Cluster):
         rows = json.loads(raw) if raw.startswith("[") else [json.loads(r) for r in raw.splitlines() if r.startswith("{")]
         return {r["Service"]: r for r in rows}
 
-    async def inject_fault(self):
+    async def inject_fault(self, scenario=None):
         if self.history["auth-service"][-1] != BAD_AUTH:
             self.ship("auth-service", BAD_AUTH)
             await self.compose("up", "-d", "auth-service")
