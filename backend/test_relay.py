@@ -21,6 +21,9 @@ relay.AUTOPILOT_DELAY_S = 0
 relay.AUTOPILOT_RETRY_S = 0
 relay.AUTOPILOT_QUIET_S = 0
 relay.PARTIAL_NUDGE_DELAY_S = 0
+# Real clips are gTTS output and deliberately not committed (redistribution risk -- see backend/autopilot/README.md);
+# the offline suite only needs *some* bytes to exist so speak_readback()'s "no clips" guard doesn't short-circuit.
+relay.AUTOPILOT_CLIPS = {w: b"\0" * 100 for w in relay.CODE_WORDS} | {"prefix": b"\0" * 100}
 
 
 class Fake:
