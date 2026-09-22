@@ -1,22 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { useRelay, type CustomScenario } from "@/lib/relay";
 import {
   ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
-  LiveAgentRequest, LiveClearance, LogTape, Panel, PrecedentCard, ReportDrawer, Speaking, Strips, Waveform,
+  LiveAgentRequest, LiveClearance, LogTape, Panel, PrecedentCard, RatingPanel, ReportDrawer, Speaking, Strips, Waveform,
   WatchingHero,
 } from "./components";
 
 function HeroWaveform() {
   const bars = [0.3, 0.7, 0.45, 0.9, 0.55, 0.35, 0.8, 0.5, 0.65, 0.4, 0.85, 0.3, 0.6, 0.75, 0.4, 0.55];
   return (
-    <div className="flex h-8 items-center gap-[3px]" aria-hidden>
+    <div className="flex h-10 items-center gap-[3px]" aria-hidden>
       {bars.map((h, i) => (
         <span
           key={i}
-          className="w-[3px] rounded-full bg-ink/25"
+          className="w-[3px] rounded-full bg-ink/35"
           style={{
             height: `${h * 100}%`,
             animation: `hero-wave 1.6s ease-in-out ${i * 0.07}s infinite`,
@@ -45,7 +46,7 @@ function HeroPreview() {
           Say: <span className="font-mono text-ink">&ldquo;Roll back auth-service, Lima Charlie.&rdquo;</span>
         </p>
         <div aria-hidden className="mt-4 h-1 overflow-hidden rounded-full bg-line">
-          <div className="h-full w-2/3 bg-accent" />
+          <div className="h-full w-2/3 bg-accent" style={{ animation: "hero-progress 3s ease-in-out infinite" }} />
         </div>
         <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
           <HeroWaveform />
@@ -56,6 +57,12 @@ function HeroPreview() {
         @keyframes hero-wave {
           0%, 100% { transform: scaleY(0.4); }
           50% { transform: scaleY(1); }
+        }
+        @keyframes hero-progress {
+          0% { width: 0%; }
+          40% { width: 66%; }
+          60% { width: 66%; }
+          100% { width: 100%; }
         }
       `}</style>
     </div>
@@ -126,7 +133,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
                 onClick={() => setShowCustom((o) => !o)}
                 className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px] text-muted transition-colors hover:border-accent/40 hover:text-ink"
               >
-                <span aria-hidden className={`text-[10px] transition-transform ${showCustom ? "rotate-90" : ""}`}>▶</span>
+                <ChevronRight aria-hidden size={12} className={`transition-transform ${showCustom ? "rotate-90" : ""}`} />
                 Bring your own incident
               </button>
               {showCustom && (
@@ -161,7 +168,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               )}
             </div>
 
-            <dl className="mt-14 grid max-w-lg grid-cols-2 gap-6 border-t border-line pt-6 sm:grid-cols-4">
+            <dl className="mt-14 grid max-w-lg grid-cols-1 gap-5 border-t border-line pt-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Blind", "The approval code never enters the model's context"],
                 ["Voiced", "A human reads the change back to prove they understood it"],
@@ -190,7 +197,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
 }
 
 export default function Home() {
-  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt } = useRelay();
+  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt, setLanguage, setRating } = useRelay();
   const [reportOpen, setReportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   if (!s.started) return <Welcome onStart={start} />;
@@ -201,7 +208,7 @@ export default function Home() {
 
   return (
     <main className="relative flex min-h-dvh flex-col lg:h-dvh">
-      <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} />
+      <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} onLanguageChange={setLanguage} />
       <DemoControls s={s} open={toolsOpen} onClose={() => setToolsOpen(false)} onFault={shipBadDeploy} onCut={cutLink} onInject={injectPrompt} />
       <IncidentBar s={s} />
       <LinkToast s={s} />
@@ -223,6 +230,7 @@ export default function Home() {
             {s.precedent && <PrecedentCard precedent={s.precedent} />}
             {liveGate && <LiveClearance gate={liveGate} mic={s.mic} />}
             {liveAgentRequest && <LiveAgentRequest req={liveAgentRequest} />}
+            <RatingPanel s={s} onRate={setRating} />
             <Panel title="Activity" aside={<Speaking s={s} />} className="lg:min-h-0 lg:flex-1">
               <div className="flex h-full flex-col">
                 <div className="px-4 pb-1">

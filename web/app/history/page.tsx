@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ArrowLeft, FileText, Mic, Table2 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { parsePostmortem, eventTone, eventLabel, type PmParsed } from "@/lib/pm";
 
@@ -144,7 +145,7 @@ function RecoveryTable({ rows }: { rows: PmParsed["recovery"] }) {
     <div className="overflow-x-auto rounded bg-board p-4">
       <table className="w-full text-left text-[12.5px] font-mono">
         <thead>
-          <tr className="text-[11px] text-muted uppercase tracking-wide border-b border-line/40">
+          <tr className="text-[11px] text-muted uppercase tracking-wide border-b border-line">
             <th className="pb-2 pr-4">Service</th>
             <th className="pb-2 pr-4">Error rate</th>
             <th className="pb-2">p99</th>
@@ -182,9 +183,9 @@ function TimelineStream({ rows }: { rows: PmParsed["timeline"] }) {
         return (
           <div key={i} className="relative flex items-start gap-3 py-2.5">
             {i < rows.length - 1 && (
-              <span className="absolute left-[5px] top-[18px] h-[calc(100%-18px)] w-px bg-line" aria-hidden />
+              <span className="absolute left-[4px] top-[14px] h-[calc(100%-14px)] w-px bg-line" aria-hidden />
             )}
-            <span className={`relative z-10 mt-[5px] size-[9px] shrink-0 rounded-full ${dotClass(tone)}`} />
+            <span className={`relative z-10 mt-[3px] size-[9px] shrink-0 rounded-full ${dotClass(tone)}`} />
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-ink">
@@ -218,7 +219,7 @@ function SidebarItem({
       onClick={onClick}
       className={`flex w-full items-center gap-3 border-b border-line/50 px-4 py-3 text-left transition-colors ${
         active
-          ? "bg-accent/8 border-l-2 border-l-accent"
+          ? "bg-accent/12 border-l-2 border-l-accent"
           : "hover:bg-board border-l-2 border-l-transparent"
       }`}
     >
@@ -237,7 +238,7 @@ function SidebarItem({
               entry.action
             )}`}
           >
-            {entry.action.replace("_", " ")}
+            {entry.action.replaceAll("_", " ")}
           </span>
         </div>
         <p className="mt-0.5 truncate text-[11.5px] text-muted">
@@ -327,7 +328,7 @@ function DetailPanel({ entry }: { entry: IncidentEntry }) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded bg-board px-3 py-1.5 text-[12px] text-muted-2 hover:text-ink transition"
               >
-                <span className="text-[13px]">🎙</span> Recording
+                <Mic aria-hidden size={12} /> Recording
               </a>
             )}
             {entry.timeline && (
@@ -337,7 +338,7 @@ function DetailPanel({ entry }: { entry: IncidentEntry }) {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded bg-board px-3 py-1.5 text-[12px] text-muted-2 hover:text-ink transition"
               >
-                <span className="text-[13px]">📋</span> Turn timeline
+                <Table2 aria-hidden size={12} /> Turn timeline
               </a>
             )}
           </div>
@@ -488,9 +489,12 @@ export default function HistoryPage() {
           {loading && <SidebarSkeleton />}
           {error && <p className="px-4 py-6 text-[13px] text-down">{error}</p>}
           {!loading && !error && entries.length === 0 && (
-            <p className="px-4 py-6 text-[13px] text-muted">
-              No incidents yet. Run a session first.
-            </p>
+            <div className="px-4 py-12 text-center">
+              <FileText aria-hidden size={20} className="mx-auto text-muted-2" />
+              <p className="mt-2 text-[13px] text-muted">
+                No incidents yet. Run a session first.
+              </p>
+            </div>
           )}
           {!loading &&
             entries.map((e, i) => (
@@ -512,9 +516,9 @@ export default function HistoryPage() {
             <button
               type="button"
               onClick={() => setMobileShowList(true)}
-              className="mb-4 text-[12px] text-muted hover:text-ink transition lg:hidden"
+              className="mb-4 inline-flex items-center gap-1 text-[12px] text-muted hover:text-ink transition lg:hidden"
             >
-              ← All incidents
+              <ArrowLeft aria-hidden size={12} /> All incidents
             </button>
             {loading && <DetailSkeleton />}
             {!loading && active && <DetailPanel entry={active} />}

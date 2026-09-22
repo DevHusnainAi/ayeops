@@ -2,7 +2,7 @@
 
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, History, Lock, Mic,
+  Activity, AlertTriangle, BarChart3, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, Globe, History, Lock, Mic,
   MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
@@ -29,6 +29,25 @@ const ACTION: Record<string, string> = { rollback: "Roll back", restart: "Restar
 const PHASE_LABEL: Record<Phase, string> = {
   starting: "Starting", monitoring: "Monitoring", triage: "Triage", mitigation: "Mitigation", resolved: "Resolved",
 };
+
+// F6: multi-language — language options for the selector
+const LANGUAGES: Record<string, string> = {
+  en: "English", es: "Spanish", fr: "French", de: "German",
+  pt: "Portuguese", it: "Italian", nl: "Dutch", hi: "Hindi",
+  ja: "Japanese", ko: "Korean", zh: "Chinese",
+};
+
+// F9: confidence badge color thresholds
+function confidenceColor(score: number): string {
+  if (score >= 0.85) return "text-healthy";
+  if (score >= 0.6) return "text-degraded";
+  return "text-down";
+}
+function confidenceLabel(score: number): string {
+  if (score >= 0.85) return "High";
+  if (score >= 0.6) return "Medium";
+  return "Low";
+}
 
 const pct = (x?: number) => (x === undefined ? "—" : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
 const clock = (secs: number) => `${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
@@ -114,11 +133,40 @@ function LinkPill({ link, mic }: { link: LinkState; mic: RelayState["mic"] }) {
   );
 }
 
+// F6: multi-language — a compact dropdown in the header for language selection.
+export function LanguageSelector({ lang, onChange }: { lang: string; onChange: (lang: string) => void }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Globe aria-hidden size={13} className="text-muted-2" />
+      <select
+        value={lang}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded border border-line bg-panel-2 px-2 py-1 text-[12px] text-ink focus:border-accent focus:outline-none"
+        title="Session language"
+      >
+        {Object.entries(LANGUAGES).map(([code, label]) => (
+          <option key={code} value={code}>{label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// F9: confidence badge — shows readback confidence during authorization.
+export function ConfidenceBadge({ score }: { score: number }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium ${confidenceColor(score)}`}>
+      <span aria-hidden className="size-1 rounded-full bg-current" />
+      {confidenceLabel(score)} confidence · {(score * 100).toFixed(0)}%
+    </span>
+  );
+}
+
 // The persistent shell header: wordmark, link status, and the two things that open on top of everything else
 // (the report, once one exists, and the demo/testing controls) -- neither hides state, they float above it.
 export function AppHeader({
-  s, onOpenReport, onToggleTools, toolsOpen,
-}: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean }) {
+  s, onOpenReport, onToggleTools, toolsOpen, onLanguageChange,
+}: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean; onLanguageChange?: (lang: string) => void }) {
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-board/80 px-5 py-3 backdrop-blur">
       <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
@@ -136,8 +184,12 @@ export function AppHeader({
       {/* flex-wrap on the header lets this group drop to its own line instead of overflowing at narrow
           widths (390px overflowed horizontally before this -- Report/History/tools had nowhere to go). */}
       <div className="ml-auto flex items-center gap-2">
+        {onLanguageChange && <LanguageSelector lang={s.lang ?? "en"} onChange={onLanguageChange} />}
         <a href="/history/" className={BTN_QUIET}>
           <span className="flex items-center gap-1.5"><History aria-hidden size={13} /> <span className="hidden sm:inline">History</span></span>
+        </a>
+        <a href="/analytics/" className={BTN_QUIET}>
+          <span className="flex items-center gap-1.5"><BarChart3 aria-hidden size={13} /> <span className="hidden sm:inline">Analytics</span></span>
         </a>
         {s.report && (
           <button type="button" onClick={onOpenReport} className={BTN_QUIET}>
@@ -587,6 +639,12 @@ export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"
               : "The agent cannot see this code. It is shown only on your screen."}
         {gate.state === "approved" || gate.state === "executing" || gate.state === "done" ? ` Authorized: “${gate.heard}”.` : null}
       </p>
+      {/* F9: show confidence badge when the readback has been scored */}
+      {gate.confidence && (gate.state === "approved" || gate.state === "executing" || gate.state === "done") && (
+        <div className="mt-2">
+          <ConfidenceBadge score={gate.confidence.code_score} />
+        </div>
+      )}
     </div>
   );
 }
@@ -875,6 +933,38 @@ export function ApiPanel({ events }: { events: ApiEvent[] }) {
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+// Post-execution rating: operator rates whether the fix actually worked. Shows after resolution.
+export function RatingPanel({
+  s, onRate,
+}: { s: RelayState; onRate: (sessionId: string, rating: "up" | "down") => void }) {
+  if (s.phase !== "resolved" || s.rating || !s.report) return null;
+  // Extract session ID from the postmortem header (first line: "# Incident report {session_id}")
+  const match = s.report.match(/^# Incident report (.+)/m);
+  const sessionId = match?.[1]?.trim();
+  if (!sessionId) return null;
+  return (
+    <div className="animate-rise flex items-center gap-4 rounded-lg border border-line bg-panel px-4 py-3">
+      <span className="text-[12px] text-muted">Did the fix work?</span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onRate(sessionId, "up")}
+          className="rounded-md border border-line bg-panel-2 px-3 py-1.5 text-[12px] font-medium text-healthy transition-colors hover:border-healthy/40 hover:bg-healthy/10"
+        >
+          👍 Yes
+        </button>
+        <button
+          type="button"
+          onClick={() => onRate(sessionId, "down")}
+          className="rounded-md border border-line bg-panel-2 px-3 py-1.5 text-[12px] font-medium text-down transition-colors hover:border-down/40 hover:bg-down/10"
+        >
+          👎 No
+        </button>
+      </div>
     </div>
   );
 }

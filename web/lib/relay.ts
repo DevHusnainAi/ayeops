@@ -30,6 +30,7 @@ export type Gate = {
   expiresAt?: number;
   approvedAt?: number;
   result?: { status?: string };
+  confidence?: { code_score: number; action_found: boolean; service_found: boolean; best_word_scores: Record<string, number> };
 };
 export type AgentRequest = {
   state: "pending" | "approved" | "denied" | "expired";
@@ -93,6 +94,8 @@ export type RelayState = {
   error?: string;
   agentSpeaking: boolean;
   operatorSpeaking: boolean;
+  lang?: string; // F6: multi-language — current session language code
+  rating?: "up" | "down" | null; // post-execution rating
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,7 +103,8 @@ type Ev = Record<string, any>;
 type Action =
   | { kind: "start"; mic: RelayState["mic"] }
   | { kind: "link"; link: LinkState }
-  | { kind: "event"; ev: Ev; at: number };
+  | { kind: "event"; ev: Ev; at: number }
+  | { kind: "rating"; rating: "up" | "down" };
 
 const initial: RelayState = {
   started: false, link: "idle", mic: "off", phase: "starting", services: {}, logs: [], feed: [], live: null,
@@ -140,6 +144,7 @@ function reduce(s: RelayState, a: Action): RelayState {
 function reduceUnsafe(s: RelayState, a: Action): RelayState {
   if (a.kind === "start") return { ...s, started: true, mic: a.mic, link: "connecting" };
   if (a.kind === "link") return { ...s, link: a.link };
+  if (a.kind === "rating") return { ...s, rating: a.rating };
   const { ev, at } = a;
   const t: string = ev.type;
   const api = (dir: "in" | "out", type: string, detail = "") =>
@@ -178,7 +183,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
         const g = s.gate && s.gate.service === ev.service && s.gate.action === ev.action ? s.gate : null;
         const base: Gate = g ?? { state: ev.state, service: ev.service, action: ev.action };
         gate = { ...base, state: ev.state, heard: ev.heard ?? base.heard,
-                approvedAt: ev.state === "approved" ? at : base.approvedAt, result: ev.result ?? base.result };
+                approvedAt: ev.state === "approved" ? at : base.approvedAt, result: ev.result ?? base.result,
+                confidence: ev.confidence ?? base.confidence };
       }
       const prior = [...s.feed].reverse().find((f) => f.kind === "gate") as (FeedItem & { kind: "gate" }) | undefined;
       const dup = prior && prior.gate.code === gate.code && prior.gate.state === gate.state;
@@ -234,6 +240,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
     }
     case "relay.error":
       return { ...s, error: ev.message, feed: feed({ kind: "link", text: `Session stopped: ${ev.message}`, tone: "error" }) };
+    case "relay.language":
+      return { ...s, lang: ev.lang };
     case "relay.sent":
       return { ...s, events: api("out", ev.message, ev.detail) };
 
@@ -421,9 +429,30 @@ export function useRelay() {
   }, []);
 
   const control = useCallback(
-    (type: "demo.fault" | "demo.drop" | "demo.inject") => a.current.ws?.send(JSON.stringify({ type })),
+    (type: "demo.fault" | "demo.drop" | "demo.inject") => {
+      const ws = a.current.ws;
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type }));
+    },
     [],
   );
+
+  // F6: multi-language — send language change to the relay.
+  const setLanguage = useCallback((lang: string) => {
+    const ws = a.current.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "relay.language", lang }));
+  }, []);
+
+  // Post-execution rating — store locally and POST to backend.
+  const setRating = useCallback(async (sessionId: string, rating: "up" | "down") => {
+    dispatch({ kind: "rating", rating });
+    try {
+      await fetch("/api/rate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, rating }),
+      });
+    } catch { /* best effort */ }
+  }, []);
 
   return {
     state,
@@ -432,5 +461,7 @@ export function useRelay() {
     shipBadDeploy: () => control("demo.fault"),
     cutLink: () => control("demo.drop"),
     injectPrompt: () => control("demo.inject"),
+    setLanguage,
+    setRating,
   };
 }

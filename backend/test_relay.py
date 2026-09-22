@@ -255,7 +255,7 @@ async def phase_scoped_tools():
     await poll()
     assert s.phase == "triage"
     opened = sent(s.up, "session.update")[-1]
-    assert tool_names(opened) == {"query_service_health", "tail_error_logs", "propose_remediation"}
+    assert tool_names(opened) == {"query_service_health", "tail_error_logs", "propose_remediation", "search_knowledge"}
 
     r = await s.run_tool("propose_remediation", AUTH_ROLLBACK)
     await ev(type="transcript.user", text=f"Roll back auth-service, {s.pending['code'].title()}.")
@@ -272,7 +272,7 @@ async def phase_scoped_tools():
     # clears session_id, matching what a refused resume actually does before opening() is called again.
     s.forget_session()
     s.phase = "mitigation"
-    assert tool_names(s.opening()) == {"query_service_health", "tail_error_logs", "propose_remediation"}
+    assert tool_names(s.opening()) == {"query_service_health", "tail_error_logs", "propose_remediation", "search_knowledge"}
     s.phase = "resolved"
     assert tool_names(s.opening()) == {"query_service_health", "tail_error_logs"}
 

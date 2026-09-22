@@ -66,6 +66,13 @@ MAX_NUDGES = 2
 READBACK_MERGE_S = 8  # AssemblyAI can finalize one spoken utterance as two transcript.user events (seen live:
 # a comma pause split "Roll back auth-service, Lima Charlie" in two); merge fragments this close together.
 
+# Word-level confidence gating: a phonetically similar but wrong code word (e.g. "kilo" heard as "tango")
+# must not pass. Uses Levenshtein-style similarity as a proxy when AssemblyAI's per-word confidence is not
+# available in real-time transcript.user events (word timestamps arrive only in the post-session timeline).
+CODE_CONFIDENCE_THRESHOLD = 0.6  # minimum similarity ratio to accept a spoken word as a code word
+_HIGH_CONFIDENCE_THRESHOLD = 0.85  # above this: no nudge needed, proceed confidently
+_LOW_CONFIDENCE_THRESHOLD = 0.4  # below this: clearly wrong code, immediate reject-style nudge
+
 # F3: logs are data the model reads, never a channel that can authorize anything -- on_user_transcript only ever
 # trusts the operator's own transcript, so a log line literally cannot execute a change. This just flags one for
 # the dashboard, for the demo moment where a poisoned log claims a fake approval and nothing happens anyway.
@@ -86,6 +93,98 @@ def service_phrases(svc):
         return SERVICE_PHRASES[svc]
     words = svc.replace("-", " ")
     return (words, svc.split("-")[0]) if "-" in svc else (words,)
+
+
+# ---- F2: word-level confidence gating ----
+
+def _levenshtein_ratio(a: str, b: str) -> float:
+    """Character-level similarity ratio (0.0–1.0). Used to catch phonetic near-misses the STT might
+    accept as a valid code word (e.g. 'kilo' vs 'tango' is 0.4, 'lima' vs 'lima' is 1.0)."""
+    if a == b:
+        return 1.0
+    len_a, len_b = len(a), len(b)
+    if not len_a or not len_b:
+        return 0.0
+    # Optimized: only need two rows for Levenshtein
+    prev = list(range(len_b + 1))
+    curr = [0] * (len_b + 1)
+    for i in range(1, len_a + 1):
+        curr[0] = i
+        for j in range(1, len_b + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            curr[j] = min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+        prev, curr = curr, prev
+    dist = prev[len_b]
+    return 1.0 - dist / max(len_a, len_b)
+
+
+def score_readback(said: str, code_words: list[str], action_phrases: list[str],
+                   service_phrases_: list[str]) -> dict:
+    """Score a spoken readback against what was expected. Returns {code_score, action_found, service_found,
+    best_word_scores} so the caller can decide whether to accept, nudge, or reject.
+
+    code_score: average similarity of each spoken word to its best-matching code word (0.0–1.0).
+    action_found / service_found: whether the expected action and service were heard.
+    best_word_scores: per-code-word best similarity, for dashboard display."""
+    words = set(re.findall(r"[a-z]+", said.lower()))
+    best_scores = {}
+    for cw in code_words:
+        best = max((_levenshtein_ratio(w, cw) for w in words), default=0.0)
+        best_scores[cw] = round(best, 3)
+    code_score = sum(best_scores.values()) / len(code_words) if code_words else 0.0
+    action_found = heard(said, action_phrases)
+    service_found = heard(said, service_phrases_)
+    return {
+        "code_score": round(code_score, 3),
+        "action_found": action_found,
+        "service_found": service_found,
+        "best_word_scores": best_scores,
+    }
+
+
+# ---- F6: multi-language support ----
+
+# Language display names for the dashboard, keyed by AssemblyAI language code.
+LANGUAGES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "pt": "Portuguese", "it": "Italian", "nl": "Dutch", "hi": "Hindi",
+    "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+}
+
+# Per-language code words and keyterms. Non-English code words are phonetically distinct from the default
+# NATO set to avoid confusion; the agent speaks the local language but the code words stay phonetically
+# universal (NATO or similar) so they transcribe reliably across languages.
+CODE_WORDS_BY_LANG = {
+    "en": CODE_WORDS,
+    "es": ["alfa", "bravo", "carlos", "delta", "foxtrot", "golfo", "hotel", "kilo",
+           "lima", "mike", "oscar", "papa", "romeo", "sierra", "tango", "victor"],
+    "fr": ["alpha", "bravo", "charlie", "delta", "foxtrot", "golf", "hotel", "kilo",
+           "lima", "mike", "oscar", "papa", "romeo", "sierra", "tango", "victor"],
+    "de": ["alfa", "bravo", "charlie", "delta", "emil", "friedrich", "heinrich", "karl",
+           "ludwig", "manni", "otto", "paul", "richard", "siegfried", "theodor", "viktor"],
+}
+
+# Action phrases per language for the readback check.
+ACTION_PHRASES_I18N = {
+    "en": ACTION_PHRASES,
+    "es": {"rollback": ("retroceso", "revertir", "volver atrás"), "restart": ("reiniciar",),
+           "scale_up": ("escalar", "aumentar")},
+    "fr": {"rollback": ("retour", "revenir", "annuler"), "restart": ("redémarrer",),
+           "scale_up": ("mettre à l'échelle", "augmenter")},
+    "de": {"rollback": ("zurücksetzen", "rollback"), "restart": ("neustart", "neu starten"),
+           "scale_up": ("hochskalieren", "erhöhen")},
+}
+
+# Service phrases per language.
+SERVICE_PHRASES_I18N = {
+    "en": SERVICE_PHRASES,
+    "es": {"auth-service": ("servicio de auth", "auth"), "api-gateway": ("api gateway", "gateway"),
+           "billing-worker": ("trabajador de billing", "billing")},
+    "fr": {"auth-service": ("service auth", "auth"), "api-gateway": ("passerelle api", "gateway"),
+           "billing-worker": ("service facturation", "billing")},
+    "de": {"auth-service": ("auth-dienst", "auth"), "api-gateway": ("api-gateway", "gateway"),
+           "billing-worker": ("abrechnungs-worker", "billing")},
+}
 
 
 def _build_tools_for(svc):
@@ -209,7 +308,26 @@ PROPOSE_TOOL = {
     "execution_mode": "hold",
     "timeout_seconds": 60,
 }
-TOOLS = READ_TOOLS + [PROPOSE_TOOL]  # the full set, held only while an incident is open
+# F8: RAG / knowledge retrieval — the agent can search past postmortems and runbooks for context during
+# triage, without leaving the voice loop. Read-only, holds no state, costs nothing when not called.
+KNOWLEDGE_TOOL = {
+    "type": "function",
+    "name": "search_knowledge",
+    "description": "Read-only. Search past postmortems and runbooks for a service or keyword. Returns the top 3 "
+    "most relevant matches with their key details (root cause, fix, MTTR). Call this during triage when the "
+    "symptoms look familiar or when you need runbook guidance for a specific failure mode.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query: service name, error keyword, or failure description"},
+        },
+        "required": ["query"],
+    },
+    "execution_mode": "hold",
+    "timeout_seconds": 60,
+}
+
+TOOLS = READ_TOOLS + [PROPOSE_TOOL, KNOWLEDGE_TOOL]  # the full set, held only while an incident is open
 
 SYSTEM_PROMPT = """You are AyeOps (pronounced "aye ops"), the incident commander for production, talking to the on-call engineer over voice.
 Be calm, terse and decisive: one short sentence per turn, two at most. Plain speech, no lists or markdown.
@@ -398,10 +516,15 @@ class Session:
         self.timeline = []  # (epoch, kind, text): the audit trail behind the postmortem
         self.last_change = None  # F10a: {service, action, evidence} from the most recent execute(), for memory
         self.scenario = None  # BYOI: custom {service, errorLine} from the browser, if any
+        self.lang = "en"  # F6: multi-language — current session language code
 
     def _services(self):
         """Return the effective service list, including any custom BYOI service."""
         return SERVICES + ([self.scenario["service"]] if self.scenario and self.scenario["service"] not in SERVICES else [])
+
+    def _current_lang(self):
+        """Return the current session language code."""
+        return getattr(self, "lang", "en") or "en"
 
     def _system_prompt(self):
         """System prompt, optionally mentioning the custom service if BYOI is active."""
@@ -514,6 +637,16 @@ class Session:
                     log.info("BYOI scenario: service=%s errorLine=%s", svc, self.scenario["errorLine"][:80])
                     # Auto-inject fault after a short delay so the demo starts without manual trigger.
                     self.spawn(self._byoi_auto_fault())
+            elif kind == "relay.language":
+                # F6: multi-language — operator selects a language from the dashboard before or during the session.
+                lang = msg.get("lang", "en")
+                if lang in LANGUAGES:
+                    self.lang = lang
+                    # Update the session input to use the new language's code words and keyterms.
+                    inp = self._session_input_for_lang(lang)
+                    await self.send_up({"type": "session.update", "session": {"input": inp}})
+                    await self.emit({"type": "relay.language", "lang": lang, "label": LANGUAGES[lang]})
+                    self.mark("lang", f"language changed to {LANGUAGES[lang]} ({lang})")
             elif kind == "demo.fault" and self.phase in ("monitoring", "resolved"):
                 self.spawn(self.cluster.inject_fault(self.scenario))
             elif kind == "demo.drop" and self.up:
@@ -659,10 +792,15 @@ class Session:
             # fallback, not the literal string "unspecified" (confirmed live 2026-09-16: it showed up on the
             # history page for a rollback that had a perfectly good, operator-supplied root cause).
             root_cause = evidence.get("message") or (self.scenario or {}).get("errorLine") or "unspecified"
+            # F10a: persistent incident storage — richer entry for RAG and the history page.
             append_memory({
                 "service": self.last_change["service"], "action": self.last_change["action"],
                 "root_cause": root_cause, "mttr_s": mttr,
                 "resolved_at": time.time(), "session_id": self.session_id,
+                "lang": self._current_lang(),
+                "broken_services": list(self.incident_broken),
+                "timeline_events": len(self.timeline),
+                "confidence": getattr(self.pending, "confidence", None) if self.pending else None,
             })
         after = await self.cluster.health()
         recovery = {s: {"error_rate_before": self.incident_before.get(s, {}).get("error_rate", 0.0),
@@ -911,7 +1049,60 @@ class Session:
             return {"service": service, "lines": await self.cluster.logs(service, n)}
         if name == "propose_remediation":
             return await self.propose(args)
+        if name == "search_knowledge":
+            return await self.search_knowledge(args)
         return {"error": f"unknown tool {name!r}"}
+
+    # ---- F8: RAG / knowledge retrieval ----
+
+    async def search_knowledge(self, args):
+        """Search past postmortems for relevant context. Returns top 3 matches with key details."""
+        query = (args.get("query") or "").lower().strip()
+        if not query:
+            return {"results": [], "message": "Provide a search query (service name, error keyword, etc.)"}
+        memory = load_memory()
+        if not memory:
+            return {"results": [], "message": "No past incidents on record yet."}
+        # Score each memory entry by keyword overlap with the query.
+        query_words = set(re.findall(r"[a-z0-9]+", query))
+        scored = []
+        for entry in memory:
+            entry_text = " ".join(str(v) for v in entry.values() if isinstance(v, str)).lower()
+            entry_words = set(re.findall(r"[a-z0-9]+", entry_text))
+            overlap = len(query_words & entry_words)
+            if overlap > 0:
+                scored.append((overlap, entry))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        results = []
+        for _, entry in scored[:3]:
+            results.append({
+                "service": entry.get("service", "unknown"),
+                "action": entry.get("action", "unknown"),
+                "root_cause": entry.get("root_cause", "unspecified"),
+                "mttr_s": entry.get("mttr_s", 0),
+                "resolved_at": entry.get("resolved_at"),
+            })
+        return {
+            "results": results,
+            "message": f"Found {len(results)} relevant past incident(s)." if results else "No matching past incidents found.",
+        }
+
+    # ---- multi-language session config ----
+
+    def _session_input_for_lang(self, lang: str):
+        """Build the session input block for a given language, with appropriate code words and keyterms."""
+        code_words = CODE_WORDS_BY_LANG.get(lang, CODE_WORDS)
+        svcs = self._services()
+        return {
+            "keyterms": svcs + code_words + ["rollback", "roll back", "triage", "crash loop",
+                                               "postmortem", "authorize"],
+            "transcription_prompt": f"A live production-infrastructure incident call between an operator and an "
+            f"AI incident commander. Expect service names ({', '.join(svcs)}), NATO phonetic authorization "
+            f"code words ({', '.join(code_words)}), and terms like rollback, restart, scale up, crash loop.",
+            "voice_focus": "near-field",
+            "language_codes": [lang],
+            "turn_detection": {"interrupt_response": True},
+        }
 
     # ---- two-stage gate: the model proposes, the operator's code authorizes, the relay executes ----
 
@@ -1004,13 +1195,34 @@ class Session:
             p["said"] = ""
         p["said"] = f"{p.get('said', '')} {text}".strip()
         p["said_at"] = now
-        words = set(re.findall(r"[a-z]+", p["said"].lower()))
+
+        # F1/F9: word-level confidence gating — score the readback against expected code, action, and service.
+        # Uses Levenshtein similarity to catch phonetic near-misses the STT might accept as valid code words.
+        lang = self._current_lang()
+        code_words_list = CODE_WORDS_BY_LANG.get(lang, CODE_WORDS)
+        action_map = ACTION_PHRASES_I18N.get(lang, ACTION_PHRASES)
+        svc_map = SERVICE_PHRASES_I18N.get(lang, SERVICE_PHRASES)
         own_code = set(p["code"].split())
+
+        # Score the readback before doing the word-set check.
+        scoring = score_readback(
+            p["said"], list(own_code),
+            list(action_map.get(p["action"], ("",))),
+            list(svc_map.get(p["service"], service_phrases(p["service"]))),
+        )
+        p["confidence"] = scoring  # store for dashboard display
+
+        words = set(re.findall(r"[a-z]+", p["said"].lower()))
         if own_code - words:  # not all of the real code's words are in yet
             if own_code & words:
                 # Some of the right code, not all of it -- a readback in progress, not a wrong code.
                 self.spawn(self.delayed_partial_nudge(p, p["said_at"]))
-            elif words & set(CODE_WORDS):
+            elif scoring["code_score"] < _LOW_CONFIDENCE_THRESHOLD:
+                # Very low confidence on any code word — clearly the wrong code.
+                await self.nudge(p, "Tell the operator in one short sentence that the code didn't match and to read it again.")
+                if self.autopilot:
+                    self.try_speak_readback(p)
+            elif words & set(code_words_list):
                 # A code-shaped word that isn't part of this one -- genuinely the wrong code.
                 await self.nudge(p, "Tell the operator in one short sentence that the code didn't match and to read it again.")
                 if self.autopilot:
@@ -1025,9 +1237,10 @@ class Session:
                 self.try_speak_readback(p)
             return
         self.pending = None  # one code = one execution
-        self.mark("gate", f'authorized by the operator reading back "{p["said"]}"')
+        self.mark("gate", f'authorized by the operator reading back "{p["said"]}" '
+                  f'(confidence: {scoring["code_score"]:.0%})')
         await self.emit({"type": "relay.gate", "state": "approved", "service": p["service"], "action": p["action"],
-                         "heard": p["said"]})
+                         "heard": p["said"], "confidence": scoring})
         self.spawn(self.execute(p, p["said"]))
 
     # ---- F4: external agent requests -- any coding agent, gated the same way, decided the same way ----
@@ -1186,6 +1399,73 @@ async def list_incidents():
             "timeline": f"/incidents/{sid}.json" if (INCIDENT_DIR / f"{sid}.json").is_file() else None,
         })
     return out
+
+
+@app.post("/api/rate")
+async def rate_incident(request: Request):
+    """Post-execution rating: operator rates whether the fix actually worked. Stored in memory for analytics."""
+    body = await request.json()
+    session_id = str(body.get("session_id", "")).strip()[:200]
+    rating = body.get("rating")
+    if not session_id or rating not in ("up", "down"):
+        raise HTTPException(400, "session_id and rating (up|down) required")
+    memory = load_memory()
+    updated = False
+    for entry in memory:
+        if entry.get("session_id") == session_id:
+            entry["rating"] = rating
+            entry["rated_at"] = time.time()
+            updated = True
+            break
+    if not updated:
+        raise HTTPException(404, "incident not found")
+    # Rewrite the JSONL file with the updated entries.
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    with MEMORY_FILE.open("w") as f:
+        for entry in memory:
+            f.write(json.dumps(entry) + "\n")
+    return {"ok": True, "session_id": session_id, "rating": rating}
+
+
+@app.get("/api/analytics")
+async def analytics():
+    """Analytics dashboard data: MTTR trends, fix frequency, action breakdown, ratings."""
+    memory = load_memory()
+    if not memory:
+        return {"incidents": 0, "mttr_avg": 0, "mttr_trend": [], "by_service": {}, "by_action": {}, "ratings": {"up": 0, "down": 0}}
+    mttrs = [e.get("mttr_s", 0) for e in memory if e.get("mttr_s") is not None]
+    mttr_avg = round(sum(mttrs) / len(mttrs)) if mttrs else 0
+    # MTTR trend: last 20 incidents
+    mttr_trend = [{"mttr": e.get("mttr_s", 0), "at": e.get("resolved_at"), "service": e.get("service", "unknown")}
+                  for e in memory[-20:] if e.get("mttr_s") is not None]
+    # By service
+    by_service = {}
+    for e in memory:
+        svc = e.get("service", "unknown")
+        by_service.setdefault(svc, {"count": 0, "total_mttr": 0})
+        by_service[svc]["count"] += 1
+        by_service[svc]["total_mttr"] += e.get("mttr_s", 0)
+    for v in by_service.values():
+        v["avg_mttr"] = round(v["total_mttr"] / v["count"]) if v["count"] else 0
+    # By action
+    by_action = {}
+    for e in memory:
+        act = e.get("action", "unknown")
+        by_action[act] = by_action.get(act, 0) + 1
+    # Ratings
+    ratings = {"up": 0, "down": 0}
+    for e in memory:
+        r = e.get("rating")
+        if r in ratings:
+            ratings[r] += 1
+    return {
+        "incidents": len(memory),
+        "mttr_avg": mttr_avg,
+        "mttr_trend": mttr_trend,
+        "by_service": by_service,
+        "by_action": by_action,
+        "ratings": ratings,
+    }
 
 
 # Evidence recordings and timelines, so /history's links resolve. Session ids are AssemblyAI UUIDs, not attacker
