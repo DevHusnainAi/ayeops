@@ -1301,10 +1301,28 @@ class Session:
 
     # ---- lifecycle ----
 
+    async def run_cluster(self):
+        """Real containers when INFRA=docker -- but a judge opening the public demo must never meet a stack
+        trace. If every cluster is busy, or Docker itself isn't there, fall back to the in-memory one and say
+        so on the dashboard rather than failing the session."""
+        await self.emit({"type": "infra.mode", **self.cluster.describe()})
+        try:
+            await self.cluster.run(self.on_state, self.on_log)
+        except Exception as e:
+            if isinstance(self.cluster, SimCluster):
+                raise  # the simulator failing is a real bug, not something to paper over
+            log.warning("docker cluster unavailable (%r); falling back to the simulator", e)
+            with contextlib.suppress(Exception):
+                await self.cluster.close()
+            self.cluster = SimCluster()
+            self.mark("infra", "docker cluster unavailable; running the in-memory simulation instead")
+            await self.emit({"type": "infra.mode", **self.cluster.describe(), "fell_back": True})
+            await self.cluster.run(self.on_state, self.on_log)
+
     async def run(self):
         ACTIVE_SESSIONS.add(self)
         tasks = [asyncio.create_task(c) for c in
-                 (self.pump_browser(), self.pump_upstream(), self.cluster.run(self.on_state, self.on_log))]
+                 (self.pump_browser(), self.pump_upstream(), self.run_cluster())]
         try:
             async with asyncio.timeout(MAX_SESSION_S):
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

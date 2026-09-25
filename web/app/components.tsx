@@ -2,6 +2,7 @@
 
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
+  Boxes,
   Activity, AlertTriangle, BarChart3, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, Globe, History, Lock, Mic,
   MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
@@ -254,6 +255,27 @@ function PhaseSteps({ phase }: { phase: Phase }) {
 
 // The incident identity bar: id, title, phase, the clock, and the (sourced, secondary) cost estimate. Shown
 // whenever there's something to report; collapses to a quiet "systems normal" line otherwise.
+// Says plainly what the operator is looking at. Real containers are the claim that separates this from a
+// dashboard of invented numbers, so it is worth stating -- which only works if "simulation" is stated as loudly.
+function InfraChip({ infra, count }: { infra?: RelayState["infra"]; count: number }) {
+  if (!infra) return null;
+  const real = infra.real;
+  return (
+    <span
+      className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-[11px] ring-1 ${
+        real ? "bg-healthy/10 text-healthy ring-healthy/30" : "bg-panel-2 text-muted ring-line"
+      }`}
+      title={real
+        ? `Real Docker containers in their own compose project${infra.project ? ` (${infra.project})` : ""} — they really crash and really recover.`
+        : "In-memory simulation: no containers are running. Set INFRA=docker for the real cluster."}
+    >
+      <Boxes aria-hidden size={12} />
+      {real ? `${count} real containers` : "simulation"}
+      {infra.fell_back ? <span className="text-muted-2">· docker busy</span> : null}
+    </span>
+  );
+}
+
 export function IncidentBar({ s }: { s: RelayState }) {
   const now = useNow();
   const id = incidentId(s.incidentAt);
@@ -262,6 +284,7 @@ export function IncidentBar({ s }: { s: RelayState }) {
       <div className="flex items-center gap-2 border-b border-line bg-panel/40 px-5 py-2 text-[13px] text-muted">
         <span aria-hidden className="size-1.5 rounded-full bg-healthy" />
         All services normal — watching for the next incident
+        <span className="ml-auto"><InfraChip infra={s.infra} count={Object.keys(s.services).length} /></span>
       </div>
     );
   }
@@ -285,6 +308,7 @@ export function IncidentBar({ s }: { s: RelayState }) {
           <span>{healthy}/{names.length} healthy</span>
         </span>
       )}
+      <InfraChip infra={s.infra} count={names.length} />
       <PhaseSteps phase={s.phase} />
       <span className="flex items-center gap-1.5 font-mono text-[13px] text-ink" title="Time since detection">
         <Clock3 aria-hidden size={13} className="text-muted" />
@@ -398,6 +422,14 @@ export function Strips({ services }: { services: Record<string, Service> }) {
               <span>p99 <span className="text-ink/80">{svc.p99_ms === undefined ? "—" : `${svc.p99_ms}ms`}</span></span>
               {svc.queue_depth ? <span>queue <span className="text-ink/80">{svc.queue_depth.toLocaleString("en-US")}</span></span> : null}
             </div>
+            {/* Docker's own words about the container -- "Restarting (2) 4 seconds ago" is the crash loop, not a
+                number we made up. Absent in sim mode, where there is nothing real to quote. */}
+            {svc.container && (
+              <p className="mt-2 truncate font-mono text-[10.5px] text-muted-2" title={svc.container_name ?? undefined}>
+                <span className="text-muted">container</span> {svc.container}
+                {svc.port ? <span className="text-muted"> · :{svc.port}</span> : null}
+              </p>
+            )}
           </li>
         );
       })}

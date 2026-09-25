@@ -13,8 +13,15 @@ export type Service = {
   error_rate?: number;
   p99_ms?: number;
   queue_depth?: number;
-  container?: string;
+  container?: string;        // docker's own status line, e.g. "Up 2 minutes" / "Restarting (2) 4 seconds ago"
+  container_name?: string;
+  image?: string;
+  port?: number | null;
 };
+
+// What the services actually are. The dashboard says this out loud either way: claiming real containers only
+// means something if the simulated case is labelled just as plainly.
+export type Infra = { mode: "sim" | "docker"; real: boolean; label: string; project?: string; fell_back?: boolean };
 export type Phase = "starting" | "monitoring" | "triage" | "mitigation" | "resolved";
 export type LinkState = "idle" | "connecting" | "connected" | "reconnecting" | "resumed" | "recovered" | "closed";
 export type Evidence = { commit: string; message: string; files: string[]; diff: string; crash_line?: string };
@@ -79,6 +86,7 @@ export type RelayState = {
   resolvedAt?: number;
   ttr?: number;
   services: Record<string, Service>;
+  infra?: Infra;
   logs: LogLine[];
   feed: FeedItem[];
   live: { who: "operator" | "agent"; text: string } | null;
@@ -154,6 +162,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
   switch (t) {
     case "infra.state":
       return { ...s, services: ev.services };
+    case "infra.mode":
+      return { ...s, infra: { mode: ev.mode, real: ev.real, label: ev.label, project: ev.project, fell_back: ev.fell_back } };
     case "infra.log":
       return { ...s, logs: last([...s.logs, { id: ++seq, service: ev.service, level: ev.level, line: ev.line }], 300) };
     case "relay.phase":

@@ -598,6 +598,40 @@ async def talking_is_not_a_wrong_code():
     assert s.pending and not s.executing
 
 
+async def cluster_says_what_it_is():
+    """The dashboard can only claim real infrastructure honestly if the simulated case says so just as plainly --
+    and a busy or missing Docker must degrade to the simulator instead of killing a judge's session."""
+    assert cluster.SimCluster().describe() == {"mode": "sim", "real": False, "label": "in-memory simulation"}
+    d = cluster.DockerCluster().describe()
+    assert d["mode"] == "docker" and d["real"] is True and d["project"].startswith("iv-"), d
+
+    s, _ = session()
+    s.cluster = cluster.DockerCluster()
+
+    async def busy(*a):
+        raise RuntimeError("every demo cluster is busy; try again in a minute")
+
+    s.cluster.run = busy
+    s.cluster.close = lambda: asyncio.sleep(0)
+    started = asyncio.Event()
+
+    class StubSim(cluster.SimCluster):
+        async def run(self, on_state, on_log):
+            started.set()
+            await asyncio.sleep(3600)
+
+    real_sim, relay.SimCluster = relay.SimCluster, StubSim
+    try:
+        task = asyncio.create_task(s.run_cluster())
+        await asyncio.wait_for(started.wait(), 2)
+    finally:
+        relay.SimCluster = real_sim
+        task.cancel()
+    modes = sent(s.ws, "infra.mode")
+    assert [m["mode"] for m in modes] == ["docker", "sim"], modes
+    assert modes[1]["fell_back"] is True and modes[1]["real"] is False, modes
+
+
 async def drain(s):
     """Let every spawned task finish, including ones a task spawns in turn (run_autopilot -> inject_fault, etc)."""
     while s.tasks:
@@ -831,6 +865,7 @@ if __name__ == "__main__":
     asyncio.run(split_utterance_readback())
     asyncio.run(partial_vs_wrong_code_message())
     asyncio.run(talking_is_not_a_wrong_code())
+    asyncio.run(cluster_says_what_it_is())
     asyncio.run(readback_in_another_language())
     asyncio.run(rating_only_for_this_relays_sessions())
     asyncio.run(nudge_dedup())

@@ -12,13 +12,13 @@ x-service: &service
 services:
   auth-service:
     <<: *service
-    environment: {ROLE: auth, VERSION: "${AUTH_VERSION:-v2.14.0}"}
+    environment: {ROLE: auth, VERSION: "${AUTH_VERSION:-v2.14.0}", TZ: "${TZ:-UTC}"}
     ports: ["127.0.0.1::8080"]
   api-gateway:
     <<: *service
-    environment: {ROLE: gateway, VERSION: "${GATEWAY_VERSION:-v5.3.0}"}
+    environment: {ROLE: gateway, VERSION: "${GATEWAY_VERSION:-v5.3.0}", TZ: "${TZ:-UTC}"}
     ports: ["127.0.0.1::8080"]
   billing-worker:
     <<: *service
-    environment: {ROLE: billing, VERSION: "${BILLING_VERSION:-v1.9.2}", WORKERS: "${BILLING_WORKERS:-1}"}
+    environment: {ROLE: billing, VERSION: "${BILLING_VERSION:-v1.9.2}", WORKERS: "${BILLING_WORKERS:-1}", TZ: "${TZ:-UTC}"}
     ports: ["127.0.0.1::8080"]
