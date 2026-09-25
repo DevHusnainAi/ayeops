@@ -500,6 +500,39 @@ async def partial_vs_wrong_code_message():
     await asyncio.gather(*s.tasks)
 
 
+async def talking_is_not_a_wrong_code():
+    """The confidence gate has to tell "the STT mangled my code" apart from "I'm asking a question". A near-miss
+    of this code gets told it didn't match; an ordinary question while a proposal is pending gets nothing --
+    nudges are budgeted (MAX_NUDGES), so nagging through normal speech would silence the gate for the readback
+    that actually matters."""
+    q = "What's the error rate on billing worker right now?"
+    # Exhaustive rather than lucky: no pair of code words reads that sentence as an attempt at the code.
+    worst = max(relay.score_readback(q, [a, b], [], [])["code_score"]
+                for a in relay.CODE_WORDS for b in relay.CODE_WORDS)
+    assert worst < relay.CODE_NEAR_MISS, worst
+
+    s, ev = session()
+    await ev(type="session.ready", session_id="s12")
+    await s.cluster.inject_fault()
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+
+    await ev(type="transcript.user", text=q)
+    said = s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")]
+    assert not any("didn't match" in x for x in said), said
+    assert s.nudges == 0, "an ordinary question must not spend the nudge budget"
+
+    # Every code word one letter off: none of them is a code word any more, so only the similarity score can
+    # catch it -- and it must, or a mangled readback strands the operator at a gate that never answers.
+    s.up.sent.clear()
+    s.pending["said_at"] = time.monotonic() - relay.READBACK_MERGE_S - 1
+    mangled = " ".join(w[:-1] + "y" for w in code.split())
+    await ev(type="transcript.user", text=f"Roll back auth service, {mangled.title()}.")
+    said = s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")]
+    assert any("didn't match" in x for x in said), (mangled, said)
+    assert s.pending and not s.executing
+
+
 async def drain(s):
     """Let every spawned task finish, including ones a task spawns in turn (run_autopilot -> inject_fault, etc)."""
     while s.tasks:
@@ -732,6 +765,7 @@ if __name__ == "__main__":
     asyncio.run(named_fix_watchdog())
     asyncio.run(split_utterance_readback())
     asyncio.run(partial_vs_wrong_code_message())
+    asyncio.run(talking_is_not_a_wrong_code())
     asyncio.run(nudge_dedup())
     asyncio.run(partial_nudge_does_not_interrupt_completing_readback())
     asyncio.run(agent_request_gate())

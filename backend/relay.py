@@ -66,12 +66,12 @@ MAX_NUDGES = 2
 READBACK_MERGE_S = 8  # AssemblyAI can finalize one spoken utterance as two transcript.user events (seen live:
 # a comma pause split "Roll back auth-service, Lima Charlie" in two); merge fragments this close together.
 
-# Word-level confidence gating: a phonetically similar but wrong code word (e.g. "kilo" heard as "tango")
-# must not pass. Uses Levenshtein-style similarity as a proxy when AssemblyAI's per-word confidence is not
-# available in real-time transcript.user events (word timestamps arrive only in the post-session timeline).
-CODE_CONFIDENCE_THRESHOLD = 0.6  # minimum similarity ratio to accept a spoken word as a code word
-_HIGH_CONFIDENCE_THRESHOLD = 0.85  # above this: no nudge needed, proceed confidently
-_LOW_CONFIDENCE_THRESHOLD = 0.4  # below this: clearly wrong code, immediate reject-style nudge
+# Word-level confidence gating: the STT can mangle a code word ("lima charlie" -> "lema charly"), which leaves
+# the operator reading back at a gate that never answers. Levenshtein similarity stands in for AssemblyAI's
+# per-word confidence, which real-time transcript.user events don't carry (it arrives in the post-session
+# timeline). A readback that lands close to this code without matching it is a wrong attempt and gets nudged;
+# ordinary speech scores far lower than this and is left alone.
+CODE_NEAR_MISS = 0.6  # mean similarity to this code's words above which an utterance is an attempt at it
 
 # F3: logs are data the model reads, never a channel that can authorize anything -- on_user_transcript only ever
 # trusts the operator's own transcript, so a log line literally cannot execute a change. This just flags one for
@@ -397,6 +397,7 @@ RELEASES = json.loads((Path(__file__).parent / "demo-cluster" / "releases.json")
 # here, not a service-name match; add it if a second fault scenario per service is ever built.
 MEMORY_DIR = Path(os.environ.get("MEMORY_DIR", Path(__file__).parent / "memory"))
 MEMORY_FILE = MEMORY_DIR / "incidents.jsonl"
+RELAY_SESSIONS = set()  # AssemblyAI session ids this process opened -- the only ones /api/rate will write for
 
 
 def load_memory():
@@ -800,7 +801,7 @@ class Session:
                 "lang": self._current_lang(),
                 "broken_services": list(self.incident_broken),
                 "timeline_events": len(self.timeline),
-                "confidence": getattr(self.pending, "confidence", None) if self.pending else None,
+                "confidence": self.last_change.get("confidence"),
             })
         after = await self.cluster.health()
         recovery = {s: {"error_rate_before": self.incident_before.get(s, {}).get("error_rate", 0.0),
@@ -932,6 +933,7 @@ class Session:
             self.session_id, self.resume_token = ev["session_id"], ev.get("resume_token")
             if self.session_id not in self.session_ids:
                 self.session_ids.append(self.session_id)
+            RELAY_SESSIONS.add(self.session_id)  # only these ids may be rated; see /api/rate
             self.session_ready, self.dropped_at, self.agent_speaking, self.resuming = True, None, False, False
             self.last_turn_event = "reply.done"  # idle; also flushes results that finished while we were offline
             self.expect_reply = fresh and not self.incident_at  # only a first session opens with the greeting
@@ -1217,22 +1219,23 @@ class Session:
             if own_code & words:
                 # Some of the right code, not all of it -- a readback in progress, not a wrong code.
                 self.spawn(self.delayed_partial_nudge(p, p["said_at"]))
-            elif scoring["code_score"] < _LOW_CONFIDENCE_THRESHOLD:
-                # Very low confidence on any code word — clearly the wrong code.
-                await self.nudge(p, "Tell the operator in one short sentence that the code didn't match and to read it again.")
-                if self.autopilot:
-                    self.try_speak_readback(p)
-            elif words & set(code_words_list):
-                # A code-shaped word that isn't part of this one -- genuinely the wrong code.
+            elif scoring["code_score"] >= CODE_NEAR_MISS or words & set(code_words_list):
+                # Close to this code without being it (the STT mangled a word), or a code-shaped word from some
+                # other code: a wrong attempt either way. Anything further off is the operator talking, not
+                # authorizing -- say nothing, or the agent nags through every question and spends its nudges.
                 await self.nudge(p, "Tell the operator in one short sentence that the code didn't match and to read it again.")
                 if self.autopilot:
                     self.try_speak_readback(p)
             return
         # F1 readback: the code alone never authorizes. Saying the action and the service too proves the operator
         # knows what they're approving, not just that they can read two words off a screen.
-        if not (heard(p["said"], ACTION_PHRASES[p["action"]]) and heard(p["said"], service_phrases(p["service"]))):
+        # F6: the operator's own language counts, and so does the English phrasing -- "rollback" is what half the
+        # world's engineers say regardless of the language the agent is speaking.
+        action_phrases = tuple(action_map.get(p["action"], ())) + ACTION_PHRASES[p["action"]]
+        svc_phrases = tuple(svc_map.get(p["service"], ())) + tuple(service_phrases(p["service"]))
+        if not (heard(p["said"], action_phrases) and heard(p["said"], svc_phrases)):
             await self.nudge(p, f"Tell the operator in under twelve words: say the action and the service with the "
-                             f"code, for example {ACTION_PHRASES[p['action']][0]} {p['service']}.")
+                             f"code, for example {action_phrases[0]} {p['service']}.")
             if self.autopilot:
                 self.try_speak_readback(p)
             return
@@ -1280,7 +1283,8 @@ class Session:
         await self.emit({"type": "relay.gate", "state": "executing", "service": service, "action": action})
         self.mark("change", f'{action} {service} ({p["change"]}), authorized by the operator reading code '
                             f'"{p["code"]}" ("{heard}")')
-        self.last_change = {"service": service, "action": action, "evidence": p.get("evidence")}
+        self.last_change = {"service": service, "action": action, "evidence": p.get("evidence"),
+                            "confidence": p.get("confidence")}  # the readback that authorized it, for memory
         try:
             result = await self.cluster.remediate(service, action, self.narrate)
         except Exception as e:
@@ -1403,12 +1407,18 @@ async def list_incidents():
 
 @app.post("/api/rate")
 async def rate_incident(request: Request):
-    """Post-execution rating: operator rates whether the fix actually worked. Stored in memory for analytics."""
+    """Post-execution rating: operator rates whether the fix actually worked. Stored in memory for analytics.
+
+    Only sessions this relay process actually ran can be rated -- otherwise anyone who can reach the origin can
+    write into the memory file that feeds /api/analytics and the precedent lookup. The dashboard only ever rates
+    the session it is holding open, so in-process is the whole legitimate set."""
     body = await request.json()
     session_id = str(body.get("session_id", "")).strip()[:200]
     rating = body.get("rating")
     if not session_id or rating not in ("up", "down"):
         raise HTTPException(400, "session_id and rating (up|down) required")
+    if session_id not in RELAY_SESSIONS:
+        raise HTTPException(403, "not a session from this relay")
     memory = load_memory()
     updated = False
     for entry in memory:

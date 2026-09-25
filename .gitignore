@@ -12,6 +12,11 @@ memory/
 SPEC.md
 research.md
 session-handoff.md
+HACKATHON_PLAN.md
+
+# competitor screenshots kept for our own reference -- someone else's UI, not ours to publish
+sauti-ai-screenshot.png
+voice-action-gate-screenshot.png
 
 # autopilot voice clips are generated locally (backend/autopilot/gen_clips.py), not shipped
 backend/autopilot/clips/
