@@ -219,6 +219,8 @@ async def incident_memory():
         mem = relay.load_memory()
         assert len(mem) == 1 and mem[0]["service"] == "auth-service" and mem[0]["action"] == "rollback", mem
         assert "JWKS" in mem[0]["root_cause"] or "parse" in mem[0]["root_cause"], mem  # the real evidence message, not a placeholder
+        # The readback's own score, not None: it used to be read off self.pending, which resolve() has already cleared.
+        assert mem[0]["confidence"]["code_score"] == 1.0, mem[0]["confidence"]
 
         # A second incident on the same service, in the same session: the page must reference the precedent, and
         # the dashboard must get a distinct event for it (not just buried in the page text).
@@ -500,6 +502,69 @@ async def partial_vs_wrong_code_message():
     await asyncio.gather(*s.tasks)
 
 
+async def readback_in_another_language():
+    """F6: with the session switched to Spanish, a Spanish readback has to clear the gate. The per-language
+    action and service phrases were once computed and then ignored in favour of the English tables, so the code
+    words matched and the action check never did -- a language the operator could hear but not authorize in.
+    The English phrasing still counts too: "rollback" is what engineers say in most languages anyway."""
+    s, ev = session()
+    await ev(type="session.ready", session_id="s13")
+    await s.on_control(json.dumps({"type": "relay.language", "lang": "es"}))
+    assert s.lang == "es"
+    assert sent(s.up, "session.update")[-1]["session"]["input"]["language_codes"] == ["es"]
+
+    await s.cluster.inject_fault()
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+    # No comma before the code: heard() matches whole space-delimited phrases, so punctuation mid-phrase would
+    # fail the service check on its own and prove nothing about the language.
+    await ev(type="transcript.user", text=f"Retroceso servicio de auth {code.title()}.")
+    await asyncio.sleep(0)
+    said = s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")]
+    assert s.pending is None and s.executing, said
+    await asyncio.gather(*s.tasks)
+
+
+async def rating_only_for_this_relays_sessions():
+    """/api/rate writes into the memory file that feeds /api/analytics and the precedent lookup, so it takes
+    ratings only for sessions this relay process opened -- not any id posted by anyone who can reach the origin.
+    The dashboard only ever rates the session it is holding open."""
+    class Req:
+        def __init__(self, body):
+            self.body = body
+
+        async def json(self):
+            return self.body
+
+    real_dir, real_file = relay.MEMORY_DIR, relay.MEMORY_FILE
+    relay.MEMORY_DIR = Path(tempfile.mkdtemp())
+    relay.MEMORY_FILE = relay.MEMORY_DIR / "incidents.jsonl"
+    try:
+        relay.append_memory({"service": "auth-service", "action": "rollback", "session_id": "mine", "mttr_s": 12})
+        relay.RELAY_SESSIONS.add("mine")
+
+        for body in ({"session_id": "mine"}, {"session_id": "", "rating": "up"}, {"session_id": "mine", "rating": "maybe"}):
+            try:
+                await relay.rate_incident(Req(body))
+                assert False, f"accepted a malformed rating: {body}"
+            except relay.HTTPException as e:
+                assert e.status_code == 400, (body, e.status_code)
+
+        try:
+            await relay.rate_incident(Req({"session_id": "someone-elses", "rating": "up"}))
+            assert False, "accepted a rating for a session this relay never opened"
+        except relay.HTTPException as e:
+            assert e.status_code == 403, e.status_code
+        assert relay.load_memory() == [{"service": "auth-service", "action": "rollback", "session_id": "mine",
+                                        "mttr_s": 12}], "a refused rating must not touch the memory file"
+
+        assert (await relay.rate_incident(Req({"session_id": "mine", "rating": "up"})))["ok"]
+        assert relay.load_memory()[0]["rating"] == "up"
+    finally:
+        relay.RELAY_SESSIONS.discard("mine")
+        relay.MEMORY_DIR, relay.MEMORY_FILE = real_dir, real_file
+
+
 async def talking_is_not_a_wrong_code():
     """The confidence gate has to tell "the STT mangled my code" apart from "I'm asking a question". A near-miss
     of this code gets told it didn't match; an ordinary question while a proposal is pending gets nothing --
@@ -766,6 +831,8 @@ if __name__ == "__main__":
     asyncio.run(split_utterance_readback())
     asyncio.run(partial_vs_wrong_code_message())
     asyncio.run(talking_is_not_a_wrong_code())
+    asyncio.run(readback_in_another_language())
+    asyncio.run(rating_only_for_this_relays_sessions())
     asyncio.run(nudge_dedup())
     asyncio.run(partial_nudge_does_not_interrupt_completing_readback())
     asyncio.run(agent_request_gate())
