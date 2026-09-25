@@ -49,6 +49,9 @@ export type AgentRequest = {
   code?: string;
   expiresAt?: number;
 };
+// The exact tool-result payload handed to the model for the pending proposal. Shown beside the operator's
+// screen so the missing code is something a viewer reads, not something we assert.
+export type ModelContext = { call: string; payload: Record<string, unknown>; code_words: number };
 export type ApiEvent = { id: number; at: number; dir: "in" | "out"; type: string; detail: string };
 export type LogLine = { id: number; service: string; line: string; level: string };
 // F10a: the most recent past incident on a service, surfaced when a new one opens on the same service.
@@ -87,6 +90,7 @@ export type RelayState = {
   ttr?: number;
   services: Record<string, Service>;
   infra?: Infra;
+  modelContext?: ModelContext | null;
   logs: LogLine[];
   feed: FeedItem[];
   live: { who: "operator" | "agent"; text: string } | null;
@@ -102,7 +106,6 @@ export type RelayState = {
   error?: string;
   agentSpeaking: boolean;
   operatorSpeaking: boolean;
-  lang?: string; // F6: multi-language — current session language code
   rating?: "up" | "down" | null; // post-execution rating
 };
 
@@ -162,6 +165,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
   switch (t) {
     case "infra.state":
       return { ...s, services: ev.services };
+    case "relay.model_context":
+      return { ...s, modelContext: { call: ev.call, payload: ev.payload, code_words: ev.code_words } };
     case "infra.mode":
       return { ...s, infra: { mode: ev.mode, real: ev.real, label: ev.label, project: ev.project, fell_back: ev.fell_back } };
     case "infra.log":
@@ -178,6 +183,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
         // A precedent from the last incident must not linger into one that doesn't have its own -- cleared
         // here and re-set only if relay.precedent actually arrives for this one.
         precedent: ev.phase === "triage" && s.phase !== "triage" ? null : s.precedent,
+        modelContext: ev.phase === "triage" && s.phase !== "triage" ? null : s.modelContext,
         feed: ev.phase === s.phase ? s.feed : feed({ kind: "phase", phase: ev.phase }),
       };
     case "relay.postmortem":
@@ -250,8 +256,6 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
     }
     case "relay.error":
       return { ...s, error: ev.message, feed: feed({ kind: "link", text: `Session stopped: ${ev.message}`, tone: "error" }) };
-    case "relay.language":
-      return { ...s, lang: ev.lang };
     case "relay.sent":
       return { ...s, events: api("out", ev.message, ev.detail) };
 
@@ -446,12 +450,6 @@ export function useRelay() {
     [],
   );
 
-  // F6: multi-language — send language change to the relay.
-  const setLanguage = useCallback((lang: string) => {
-    const ws = a.current.ws;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "relay.language", lang }));
-  }, []);
-
   // Post-execution rating — store locally and POST to backend.
   const setRating = useCallback(async (sessionId: string, rating: "up" | "down") => {
     dispatch({ kind: "rating", rating });
@@ -471,7 +469,6 @@ export function useRelay() {
     shipBadDeploy: () => control("demo.fault"),
     cutLink: () => control("demo.drop"),
     injectPrompt: () => control("demo.inject"),
-    setLanguage,
     setRating,
   };
 }

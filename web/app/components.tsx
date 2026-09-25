@@ -3,12 +3,14 @@
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
   Boxes,
+  EyeOff,
   Activity, AlertTriangle, BarChart3, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, Globe, History, Lock, Mic,
   MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import type {
-  AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, Phase, Precedent, RecoveryDelta, RelayState, Service, Status,
+  AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, ModelContext, Phase, Precedent, RecoveryDelta,
+  RelayState, Service, Status,
 } from "@/lib/relay";
 
 export const BTN =
@@ -29,13 +31,6 @@ const STATUS: Record<Status, { label: string; dot: string; text: string; bg: str
 const ACTION: Record<string, string> = { rollback: "Roll back", restart: "Restart", scale_up: "Scale up" };
 const PHASE_LABEL: Record<Phase, string> = {
   starting: "Starting", monitoring: "Monitoring", triage: "Triage", mitigation: "Mitigation", resolved: "Resolved",
-};
-
-// F6: multi-language — language options for the selector
-const LANGUAGES: Record<string, string> = {
-  en: "English", es: "Spanish", fr: "French", de: "German",
-  pt: "Portuguese", it: "Italian", nl: "Dutch", hi: "Hindi",
-  ja: "Japanese", ko: "Korean", zh: "Chinese",
 };
 
 // F9: confidence badge color thresholds
@@ -134,25 +129,6 @@ function LinkPill({ link, mic }: { link: LinkState; mic: RelayState["mic"] }) {
   );
 }
 
-// F6: multi-language — a compact dropdown in the header for language selection.
-export function LanguageSelector({ lang, onChange }: { lang: string; onChange: (lang: string) => void }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Globe aria-hidden size={13} className="text-muted-2" />
-      <select
-        value={lang}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded border border-line bg-panel-2 px-2 py-1 text-[12px] text-ink focus:border-accent focus:outline-none"
-        title="Session language"
-      >
-        {Object.entries(LANGUAGES).map(([code, label]) => (
-          <option key={code} value={code}>{label}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
 // F9: confidence badge — shows readback confidence during authorization.
 export function ConfidenceBadge({ score }: { score: number }) {
   return (
@@ -166,8 +142,8 @@ export function ConfidenceBadge({ score }: { score: number }) {
 // The persistent shell header: wordmark, link status, and the two things that open on top of everything else
 // (the report, once one exists, and the demo/testing controls) -- neither hides state, they float above it.
 export function AppHeader({
-  s, onOpenReport, onToggleTools, toolsOpen, onLanguageChange,
-}: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean; onLanguageChange?: (lang: string) => void }) {
+  s, onOpenReport, onToggleTools, toolsOpen,
+}: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean }) {
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-board/80 px-5 py-3 backdrop-blur">
       <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
@@ -185,7 +161,6 @@ export function AppHeader({
       {/* flex-wrap on the header lets this group drop to its own line instead of overflowing at narrow
           widths (390px overflowed horizontally before this -- Report/History/tools had nowhere to go). */}
       <div className="ml-auto flex items-center gap-2">
-        {onLanguageChange && <LanguageSelector lang={s.lang ?? "en"} onChange={onLanguageChange} />}
         <a href="/history/" className={BTN_QUIET}>
           <span className="flex items-center gap-1.5"><History aria-hidden size={13} /> <span className="hidden sm:inline">History</span></span>
         </a>
@@ -928,6 +903,43 @@ export function ReportDrawer({ s, open, onClose }: { s: RelayState; open: boolea
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// The whole product in one picture: the operator's screen holds a code, and the payload the model received
+// does not. Rendered from the exact bytes sent as the tool result, so if a code ever leaked into the model's
+// context this panel is where it would show up -- it is a check, not an illustration.
+export function ModelContextCard({ ctx, codeWords }: { ctx: ModelContext | null | undefined; codeWords: number }) {
+  if (!ctx) return null;
+  const lines = JSON.stringify(ctx.payload, null, 2).split("\n");
+  return (
+    <div className="flex flex-col overflow-hidden rounded-lg border border-line bg-panel">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+        <EyeOff aria-hidden size={13} className="text-muted-2" />
+        <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Model context</span>
+        <span className="ml-auto font-mono text-[10.5px] text-muted-2">tool.result · {ctx.call}</span>
+      </div>
+
+      {/* Where the code would be, if the model were told it. */}
+      <div className="border-b border-line bg-panel-2/60 px-4 py-3">
+        <p className="mb-2 font-mono text-[10.5px] tracking-wide text-muted-2 uppercase">authorization code</p>
+        <div className="flex items-center gap-2" aria-label={`${codeWords} words withheld from the model`}>
+          {Array.from({ length: codeWords }).map((_, i) => (
+            <span key={i} className="h-[3.25rem] flex-1 rounded-md bg-line/80 ring-1 ring-line" />
+          ))}
+        </div>
+        <p className="mt-2.5 text-[12px] text-muted">
+          Withheld. The agent cannot say this, and cannot act without it.
+        </p>
+      </div>
+
+      <pre className="max-h-72 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-relaxed text-muted">
+        {lines.map((l, i) => (
+          <div key={i} className="break-words whitespace-pre-wrap">{l}</div>
+        ))}
+      </pre>
     </div>
   );
 }

@@ -145,48 +145,6 @@ def score_readback(said: str, code_words: list[str], action_phrases: list[str],
 # ---- F6: multi-language support ----
 
 # Language display names for the dashboard, keyed by AssemblyAI language code.
-LANGUAGES = {
-    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
-    "pt": "Portuguese", "it": "Italian", "nl": "Dutch", "hi": "Hindi",
-    "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
-}
-
-# Per-language code words and keyterms. Non-English code words are phonetically distinct from the default
-# NATO set to avoid confusion; the agent speaks the local language but the code words stay phonetically
-# universal (NATO or similar) so they transcribe reliably across languages.
-CODE_WORDS_BY_LANG = {
-    "en": CODE_WORDS,
-    "es": ["alfa", "bravo", "carlos", "delta", "foxtrot", "golfo", "hotel", "kilo",
-           "lima", "mike", "oscar", "papa", "romeo", "sierra", "tango", "victor"],
-    "fr": ["alpha", "bravo", "charlie", "delta", "foxtrot", "golf", "hotel", "kilo",
-           "lima", "mike", "oscar", "papa", "romeo", "sierra", "tango", "victor"],
-    "de": ["alfa", "bravo", "charlie", "delta", "emil", "friedrich", "heinrich", "karl",
-           "ludwig", "manni", "otto", "paul", "richard", "siegfried", "theodor", "viktor"],
-}
-
-# Action phrases per language for the readback check.
-ACTION_PHRASES_I18N = {
-    "en": ACTION_PHRASES,
-    "es": {"rollback": ("retroceso", "revertir", "volver atrás"), "restart": ("reiniciar",),
-           "scale_up": ("escalar", "aumentar")},
-    "fr": {"rollback": ("retour", "revenir", "annuler"), "restart": ("redémarrer",),
-           "scale_up": ("mettre à l'échelle", "augmenter")},
-    "de": {"rollback": ("zurücksetzen", "rollback"), "restart": ("neustart", "neu starten"),
-           "scale_up": ("hochskalieren", "erhöhen")},
-}
-
-# Service phrases per language.
-SERVICE_PHRASES_I18N = {
-    "en": SERVICE_PHRASES,
-    "es": {"auth-service": ("servicio de auth", "auth"), "api-gateway": ("api gateway", "gateway"),
-           "billing-worker": ("trabajador de billing", "billing")},
-    "fr": {"auth-service": ("service auth", "auth"), "api-gateway": ("passerelle api", "gateway"),
-           "billing-worker": ("service facturation", "billing")},
-    "de": {"auth-service": ("auth-dienst", "auth"), "api-gateway": ("api-gateway", "gateway"),
-           "billing-worker": ("abrechnungs-worker", "billing")},
-}
-
-
 def _build_tools_for(svc):
     """Build the full tool set with the custom service name included in the enum."""
     all_svcs = SERVICES + [svc] if svc not in SERVICES else SERVICES
@@ -517,15 +475,10 @@ class Session:
         self.timeline = []  # (epoch, kind, text): the audit trail behind the postmortem
         self.last_change = None  # F10a: {service, action, evidence} from the most recent execute(), for memory
         self.scenario = None  # BYOI: custom {service, errorLine} from the browser, if any
-        self.lang = "en"  # F6: multi-language — current session language code
 
     def _services(self):
         """Return the effective service list, including any custom BYOI service."""
         return SERVICES + ([self.scenario["service"]] if self.scenario and self.scenario["service"] not in SERVICES else [])
-
-    def _current_lang(self):
-        """Return the current session language code."""
-        return getattr(self, "lang", "en") or "en"
 
     def _system_prompt(self):
         """System prompt, optionally mentioning the custom service if BYOI is active."""
@@ -638,16 +591,6 @@ class Session:
                     log.info("BYOI scenario: service=%s errorLine=%s", svc, self.scenario["errorLine"][:80])
                     # Auto-inject fault after a short delay so the demo starts without manual trigger.
                     self.spawn(self._byoi_auto_fault())
-            elif kind == "relay.language":
-                # F6: multi-language — operator selects a language from the dashboard before or during the session.
-                lang = msg.get("lang", "en")
-                if lang in LANGUAGES:
-                    self.lang = lang
-                    # Update the session input to use the new language's code words and keyterms.
-                    inp = self._session_input_for_lang(lang)
-                    await self.send_up({"type": "session.update", "session": {"input": inp}})
-                    await self.emit({"type": "relay.language", "lang": lang, "label": LANGUAGES[lang]})
-                    self.mark("lang", f"language changed to {LANGUAGES[lang]} ({lang})")
             elif kind == "demo.fault" and self.phase in ("monitoring", "resolved"):
                 self.spawn(self.cluster.inject_fault(self.scenario))
             elif kind == "demo.drop" and self.up:
@@ -798,7 +741,6 @@ class Session:
                 "service": self.last_change["service"], "action": self.last_change["action"],
                 "root_cause": root_cause, "mttr_s": mttr,
                 "resolved_at": time.time(), "session_id": self.session_id,
-                "lang": self._current_lang(),
                 "broken_services": list(self.incident_broken),
                 "timeline_events": len(self.timeline),
                 "confidence": self.last_change.get("confidence"),
@@ -1089,23 +1031,6 @@ class Session:
             "message": f"Found {len(results)} relevant past incident(s)." if results else "No matching past incidents found.",
         }
 
-    # ---- multi-language session config ----
-
-    def _session_input_for_lang(self, lang: str):
-        """Build the session input block for a given language, with appropriate code words and keyterms."""
-        code_words = CODE_WORDS_BY_LANG.get(lang, CODE_WORDS)
-        svcs = self._services()
-        return {
-            "keyterms": svcs + code_words + ["rollback", "roll back", "triage", "crash loop",
-                                               "postmortem", "authorize"],
-            "transcription_prompt": f"A live production-infrastructure incident call between an operator and an "
-            f"AI incident commander. Expect service names ({', '.join(svcs)}), NATO phonetic authorization "
-            f"code words ({', '.join(code_words)}), and terms like rollback, restart, scale up, crash loop.",
-            "voice_focus": "near-field",
-            "language_codes": [lang],
-            "turn_detection": {"interrupt_response": True},
-        }
-
     # ---- two-stage gate: the model proposes, the operator's code authorizes, the relay executes ----
 
     async def propose(self, args):
@@ -1161,6 +1086,11 @@ class Session:
         }
         if evidence:  # a one-line summary only -- never the code, never secret
             result["what_this_undoes"] = f"{evidence['commit']}: {evidence['message']}"
+        # The dashboard shows this payload beside the operator's screen: the exact bytes handed to the model,
+        # so the absence of the code is something a viewer can read rather than a claim they have to trust.
+        # Sent as the payload itself -- if a code ever leaked into it, this panel would be the thing that showed it.
+        await self.emit({"type": "relay.model_context", "call": "propose_remediation",
+                         "payload": result, "code_words": len(p["code"].split())})
         return result
 
     async def nudge(self, p, message):
@@ -1200,17 +1130,13 @@ class Session:
 
         # F1/F9: word-level confidence gating — score the readback against expected code, action, and service.
         # Uses Levenshtein similarity to catch phonetic near-misses the STT might accept as valid code words.
-        lang = self._current_lang()
-        code_words_list = CODE_WORDS_BY_LANG.get(lang, CODE_WORDS)
-        action_map = ACTION_PHRASES_I18N.get(lang, ACTION_PHRASES)
-        svc_map = SERVICE_PHRASES_I18N.get(lang, SERVICE_PHRASES)
         own_code = set(p["code"].split())
 
         # Score the readback before doing the word-set check.
         scoring = score_readback(
             p["said"], list(own_code),
-            list(action_map.get(p["action"], ("",))),
-            list(svc_map.get(p["service"], service_phrases(p["service"]))),
+            list(ACTION_PHRASES[p["action"]]),
+            list(service_phrases(p["service"])),
         )
         p["confidence"] = scoring  # store for dashboard display
 
@@ -1219,7 +1145,7 @@ class Session:
             if own_code & words:
                 # Some of the right code, not all of it -- a readback in progress, not a wrong code.
                 self.spawn(self.delayed_partial_nudge(p, p["said_at"]))
-            elif scoring["code_score"] >= CODE_NEAR_MISS or words & set(code_words_list):
+            elif scoring["code_score"] >= CODE_NEAR_MISS or words & set(CODE_WORDS):
                 # Close to this code without being it (the STT mangled a word), or a code-shaped word from some
                 # other code: a wrong attempt either way. Anything further off is the operator talking, not
                 # authorizing -- say nothing, or the agent nags through every question and spends its nudges.
@@ -1229,10 +1155,8 @@ class Session:
             return
         # F1 readback: the code alone never authorizes. Saying the action and the service too proves the operator
         # knows what they're approving, not just that they can read two words off a screen.
-        # F6: the operator's own language counts, and so does the English phrasing -- "rollback" is what half the
-        # world's engineers say regardless of the language the agent is speaking.
-        action_phrases = tuple(action_map.get(p["action"], ())) + ACTION_PHRASES[p["action"]]
-        svc_phrases = tuple(svc_map.get(p["service"], ())) + tuple(service_phrases(p["service"]))
+        action_phrases = ACTION_PHRASES[p["action"]]
+        svc_phrases = tuple(service_phrases(p["service"]))
         if not (heard(p["said"], action_phrases) and heard(p["said"], svc_phrases)):
             await self.nudge(p, f"Tell the operator in under twelve words: say the action and the service with the "
                              f"code, for example {action_phrases[0]} {p['service']}.")

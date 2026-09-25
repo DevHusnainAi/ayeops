@@ -502,29 +502,6 @@ async def partial_vs_wrong_code_message():
     await asyncio.gather(*s.tasks)
 
 
-async def readback_in_another_language():
-    """F6: with the session switched to Spanish, a Spanish readback has to clear the gate. The per-language
-    action and service phrases were once computed and then ignored in favour of the English tables, so the code
-    words matched and the action check never did -- a language the operator could hear but not authorize in.
-    The English phrasing still counts too: "rollback" is what engineers say in most languages anyway."""
-    s, ev = session()
-    await ev(type="session.ready", session_id="s13")
-    await s.on_control(json.dumps({"type": "relay.language", "lang": "es"}))
-    assert s.lang == "es"
-    assert sent(s.up, "session.update")[-1]["session"]["input"]["language_codes"] == ["es"]
-
-    await s.cluster.inject_fault()
-    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
-    code = s.pending["code"]
-    # No comma before the code: heard() matches whole space-delimited phrases, so punctuation mid-phrase would
-    # fail the service check on its own and prove nothing about the language.
-    await ev(type="transcript.user", text=f"Retroceso servicio de auth {code.title()}.")
-    await asyncio.sleep(0)
-    said = s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")]
-    assert s.pending is None and s.executing, said
-    await asyncio.gather(*s.tasks)
-
-
 async def rating_only_for_this_relays_sessions():
     """/api/rate writes into the memory file that feeds /api/analytics and the precedent lookup, so it takes
     ratings only for sessions this relay process opened -- not any id posted by anyone who can reach the origin.
@@ -866,7 +843,6 @@ if __name__ == "__main__":
     asyncio.run(partial_vs_wrong_code_message())
     asyncio.run(talking_is_not_a_wrong_code())
     asyncio.run(cluster_says_what_it_is())
-    asyncio.run(readback_in_another_language())
     asyncio.run(rating_only_for_this_relays_sessions())
     asyncio.run(nudge_dedup())
     asyncio.run(partial_nudge_does_not_interrupt_completing_readback())

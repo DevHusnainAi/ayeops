@@ -6,8 +6,8 @@ import { BRAND } from "@/lib/brand";
 import { useRelay, type CustomScenario } from "@/lib/relay";
 import {
   ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
-  LiveAgentRequest, LiveClearance, LogTape, Panel, PrecedentCard, RatingPanel, ReportDrawer, Speaking, Strips, Waveform,
-  WatchingHero,
+  LiveAgentRequest, LiveClearance, LogTape, ModelContextCard, Panel, PrecedentCard, RatingPanel, ReportDrawer,
+  Speaking, Strips, Waveform, WatchingHero,
 } from "./components";
 
 function HeroWaveform() {
@@ -197,7 +197,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
 }
 
 export default function Home() {
-  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt, setLanguage, setRating } = useRelay();
+  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt, setRating } = useRelay();
   const [reportOpen, setReportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   if (!s.started) return <Welcome onStart={start} />;
@@ -208,7 +208,7 @@ export default function Home() {
 
   return (
     <main className="relative flex min-h-dvh flex-col lg:h-dvh">
-      <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} onLanguageChange={setLanguage} />
+      <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} />
       <DemoControls s={s} open={toolsOpen} onClose={() => setToolsOpen(false)} onFault={shipBadDeploy} onCut={cutLink} onInject={injectPrompt} />
       <IncidentBar s={s} />
       <LinkToast s={s} />
@@ -228,7 +228,13 @@ export default function Home() {
 
           <div className="flex flex-col gap-5 lg:col-span-8 lg:min-h-0">
             {s.precedent && <PrecedentCard precedent={s.precedent} />}
-            {liveGate && <LiveClearance gate={liveGate} mic={s.mic} />}
+            {liveGate && (
+              // Side by side on purpose: the same instant, on the operator's screen and in the model's context.
+              <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+                <LiveClearance gate={liveGate} mic={s.mic} />
+                <ModelContextCard ctx={s.modelContext} codeWords={liveGate.code?.split(" ").length ?? 2} />
+              </div>
+            )}
             {liveAgentRequest && <LiveAgentRequest req={liveAgentRequest} />}
             <RatingPanel s={s} onRate={setRating} />
             <Panel title="Activity" aside={<Speaking s={s} />} className="lg:min-h-0 lg:flex-1">
