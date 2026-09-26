@@ -583,8 +583,6 @@ class Session:
         self.agent_requests_made = 0
         self.agent_lines = []  # (monotonic, text) of what the agent recently said, to recognize its own echo
         self.gate_mode = False  # the model is on GATE_PROMPT: a proposal awaits its readback
-        self.await_gate = False  # the propose result was just sent; the reply that follows is the proposal itself
-        self.gate_calls = set()  # call ids of propose_remediation results not yet delivered
         self.echo_seen = False
         self.fault = "deploy"  # which incident demo.fault ships (one of FAULTS); the welcome page can preselect it
 
@@ -1077,10 +1075,6 @@ class Session:
             self.spawn(self.exec_tool(ev))  # never block the audio loop on a tool
         elif t == "reply.done":
             self.agent_speaking = False
-            if self.await_gate:
-                self.await_gate = False
-                if self.pending:
-                    await self.set_gate_mode(True)
             latency, self.turn_latency_ms = self.turn_latency_ms, None
             named_fix = not self.reply_had_tool and FIX.search(self.agent_said)
             self.reply_had_tool, self.agent_said = False, ""
@@ -1128,7 +1122,13 @@ class Session:
         if on == self.gate_mode:
             return
         self.gate_mode = on
-        await self.send_up({"type": "session.update", "session": {"system_prompt": GATE_PROMPT if on else self._system_prompt()}})
+        # Reading a code aloud is deliberate speech with pauses ("mike ... tango"). At the default pacing a pause ends
+        # the operator's turn and the agent talks over the rest of their readback (seen live), so the turn stays open
+        # longer while a readback is pending, and returns to the defaults when the gate closes.
+        pacing = {"min_silence": 1800, "max_silence": 5000} if on else {"min_silence": 1000, "max_silence": 3000}
+        await self.send_up({"type": "session.update", "session": {
+            "system_prompt": GATE_PROMPT if on else self._system_prompt(),
+            "input": {"turn_detection": {"interrupt_response": True, **pacing}}}})
 
     async def is_echo(self, text):
         """The microphone picked up the agent's own voice (speakers, no headphones): every word of this "operator"
@@ -1168,9 +1168,6 @@ class Session:
                 self.ready_results.insert(0, msg)  # resend after session.ready
                 return
             self.expect_reply = True  # the result triggers the agent's next reply
-            if msg.get("call_id") in self.gate_calls:
-                self.gate_calls.discard(msg["call_id"])
-                self.await_gate = True  # the next reply is the proposal; the strict prompt starts after it
             await self.mirror(msg)
 
     # ---- tools ----
@@ -1190,7 +1187,10 @@ class Session:
         if call_id in self.live_calls:
             self.live_calls.discard(call_id)
             if name == "propose_remediation" and result.get("status") == "awaiting_authorization":
-                self.gate_calls.add(call_id)
+                # The proposal sentence is scripted word for word, so the strict prompt can start now instead of
+                # after it is spoken: operators start reading the code as soon as it appears, cutting the first
+                # utterance off, and in that window a free model restarted its proposal (seen live, up to three times).
+                await self.set_gate_mode(True)
             self.ready_results.append({"type": "tool.result", "call_id": call_id, "result": json.dumps(result)})
             await self.flush_results()
 

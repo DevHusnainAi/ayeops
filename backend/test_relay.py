@@ -939,10 +939,9 @@ async def strict_prompt_while_a_proposal_awaits():
     before = len(prompts())
     s.live_calls.add("c1")
     await s.exec_tool({"call_id": "c1", "name": "propose_remediation", "arguments": AUTH_ROLLBACK})
-    assert len(prompts()) == before, "the proposal itself is spoken under the working prompt"
-    await ev(type="reply.started")
-    await ev(type="reply.done", status="completed")
-    assert prompts()[-1] == relay.GATE_PROMPT and s.gate_mode, "after the proposal, the strict prompt takes over"
+    assert prompts()[-1] == relay.GATE_PROMPT and s.gate_mode, "the strict prompt starts with the (scripted) proposal"
+    turn = [m["session"]["input"]["turn_detection"] for m in sent(s.up, "session.update") if "input" in m["session"]][-1]
+    assert turn["min_silence"] > 1000, "a readback's pauses must not end the operator's turn"
     await authorize(s, ev, poll, "Roll back auth-service")
     assert relay.GATE_PROMPT not in prompts()[before + 1:], "the strict prompt must be gone once the gate closes"
     assert not s.gate_mode
