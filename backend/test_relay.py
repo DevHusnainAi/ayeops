@@ -963,6 +963,38 @@ async def punctuation_does_not_hide_what_was_said():
     assert relay.heard("Restart. Billing-worker.", ["restart"]) and relay.heard("scale-up", ["scale up"])
 
 
+async def model_cannot_speak_on_its_own_while_a_code_is_pending():
+    """Seen live: the model answered every pause with its own reply, re-explaining the proposal a second after 'Roll
+    back.', whatever the prompt or the turn pacing. While a code is pending only the relay speaks: the proposal (asked
+    for by the tool result) and scripted nudges are played, the model's own replies are swallowed."""
+    s, ev, poll = await one_incident("deploy")
+    s.live_calls.add("c1")
+    await s.exec_tool({"call_id": "c1", "name": "propose_remediation", "arguments": AUTH_ROLLBACK})
+    played = lambda: [e for e in s.ws.sent if e["type"] in ("reply.audio", "transcript.agent")]
+    before = len(played())
+
+    await ev(type="reply.started")  # the proposal: the tool result asked for it
+    await ev(type="reply.audio", data="AAAA")
+    await ev(type="reply.done", status="completed")
+    assert len(played()) == before + 1, "the scripted proposal is heard"
+
+    await ev(type="reply.started")  # nobody asked for this one: the model answering a pause
+    await ev(type="reply.audio", data="BBBB")
+    await ev(type="transcript.agent", text="The auth-service is down following the latest deploy, which is causing…")
+    await ev(type="reply.done", status="completed")
+    assert len(played()) == before + 1, "the model's own reply must not reach the operator"
+    assert any(kind == "muted" for _, kind, _ in s.timeline), "and it is recorded that it was muted"
+
+    await s.say('Say exactly this and nothing else: "Keep going, and finish reading the code."')
+    await ev(type="reply.started")  # a scripted nudge: heard
+    await ev(type="reply.audio", data="CCCC")
+    await ev(type="reply.done", status="completed")
+    assert len(played()) == before + 2, "the relay's scripted lines are still heard"
+
+    await authorize(s, ev, poll, "Roll back auth-service")
+    assert s.phase == "resolved" and not s.muting
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1197,6 +1229,7 @@ if __name__ == "__main__":
     asyncio.run(recognizer_mishears_a_code_word_and_the_readback_still_works())
     asyncio.run(strict_prompt_while_a_proposal_awaits())
     asyncio.run(punctuation_does_not_hide_what_was_said())
+    asyncio.run(model_cannot_speak_on_its_own_while_a_code_is_pending())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())

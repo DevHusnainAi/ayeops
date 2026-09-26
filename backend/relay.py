@@ -585,6 +585,7 @@ class Session:
         self.agent_requests_made = 0
         self.agent_lines = []  # (monotonic, text) of what the agent recently said, to recognize its own echo
         self.gate_mode = False  # the model is on GATE_PROMPT: a proposal awaits its readback
+        self.muting = False  # the reply in progress is the model's own, during a readback: swallowed, not played
         self.echo_seen = False
         self.fault = "deploy"  # which incident demo.fault ships (one of FAULTS); the welcome page can preselect it
 
@@ -1035,6 +1036,16 @@ class Session:
         self.live_calls.clear()
 
     async def on_upstream(self, raw):
+        if self.muting:
+            # While a code is pending only the relay may speak. The model answers every pause the operator takes
+            # with its own reply, and neither the API's turn pacing nor a strict prompt stopped it (seen live: it
+            # re-explained the proposal after "Roll back." a second later). Its own replies are swallowed here; what
+            # the operator hears is what the relay scripted, and the readback checklist shows progress instead.
+            spoken = json.loads(raw)
+            if spoken.get("type") in ("reply.audio", "transcript.agent"):
+                if spoken["type"] == "transcript.agent":
+                    self.mark("muted", spoken.get("text", ""))
+                return
         await self.ws.send_text(raw)  # forward first: audio latency matters more than our bookkeeping
         ev = json.loads(raw)
         t = ev.get("type")
@@ -1062,6 +1073,9 @@ class Session:
             await self.flush_results()
             await self.flush_say()
         elif t == "reply.started":
+            # A reply nobody asked for (no reply.create or tool result pending) while a readback is pending is the
+            # model talking on its own.
+            self.muting = self.gate_mode and not self.expect_reply
             self.last_turn_event, self.agent_speaking, self.expect_reply = t, True, False
         elif t == "input.speech.started":
             self.last_turn_event, self.expect_reply = t, False
@@ -1076,7 +1090,7 @@ class Session:
             self.live_calls.add(ev["call_id"])
             self.spawn(self.exec_tool(ev))  # never block the audio loop on a tool
         elif t == "reply.done":
-            self.agent_speaking = False
+            self.agent_speaking, self.muting = False, False
             latency, self.turn_latency_ms = self.turn_latency_ms, None
             named_fix = not self.reply_had_tool and FIX.search(self.agent_said)
             self.reply_had_tool, self.agent_said = False, ""
