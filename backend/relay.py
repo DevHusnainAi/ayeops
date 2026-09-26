@@ -1322,15 +1322,21 @@ class Session:
             self.try_speak_readback(p)  # services have no evidence steering the model toward rollback specifically
         affected = DEPENDENTS.get(service, [])
         blast_radius = f" Say what it also affects: {', '.join(affected)}." if affected else ""
+        doing = {"rollback": f"rolling back {service}", "restart": f"restarting {service}",
+                 "scale_up": f"scaling up {service}"}[action]
+        spoken = (f"I propose {doing}" + (f", affecting {' and '.join(affected)}" if affected else "")
+                  + ". Read back the action, service and code from your screen.")
+        # The sentence is handed over whole: left to compose its own, the model rambled, and then re-explained it
+        # after every fragment the operator said. Nothing else is left for it to say until the gate closes.
+        instruction = (f'Nothing has changed. Say exactly this and nothing else: "{spoken}" You do not know the code. '
+                       'After that, answer anything the operator says with only "Verifying." and never repeat or '
+                       'explain the proposal; the system checks the readback, not you.')
         result = {
             "status": "awaiting_authorization",
             "plan": f"roll {service} back to its previous version" if action == "rollback"
             else f"{action.replace('_', ' ')} {service}",
             "affected": affected,
-            "instruction": f"Nothing has changed. Say two short sentences, twenty-five words at most in all: propose the plan "
-            f"(\"I propose rolling back…\", never \"I will\").{blast_radius} Then ask the operator to read back the "
-            f"action, the service and the code from their screen, together. You do not know the code. When they do, say "
-            f"only \"Verifying.\"; the system checks it, not you.",
+            "instruction": instruction,
         }
         if evidence:  # a one-line summary only -- never the code, never secret
             result["what_this_undoes"] = f"{evidence['commit']}: {evidence['message']}"

@@ -340,6 +340,19 @@ type Audio = {
   opened: boolean; // F10e: did the WS ever actually open -- distinguishes "never reached the relay" from a drop
 };
 
+// Echo cancellation in the browser is unreliable on speakers (worst on Linux): the agent's voice comes back through
+// the microphone and, worse, the operator's own voice is ducked while the agent talks, so a readback gets lost. With
+// a headset there is no such problem. If the active output does not look like one, hold-to-talk is the safe default.
+async function likelyHeadset(): Promise<boolean> {
+  try {
+    const outs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audiooutput");
+    const active = outs.find((d) => d.deviceId === "default") ?? outs[0];
+    return !!active && /head(phone|set)|earbud|earphone|airpod|buds|bluetooth|usb/i.test(active.label);
+  } catch {
+    return false;
+  }
+}
+
 export function useRelay() {
   const [state, dispatch] = useReducer(reduce, initial);
   const a = useRef<Audio>({ sources: new Set(), playhead: 0, micLevel: 0, opened: false });
@@ -416,6 +429,11 @@ export function useRelay() {
       }
     }
     dispatch({ kind: "start", mic });
+    if (mic === "on" && !autopilot && !(await likelyHeadset())) {
+      r.ptt = true;
+      dispatch({ kind: "ptt", on: true });
+      dispatch({ kind: "event", ev: { type: "relay.notice", message: "No headset detected. Hold Space, or the Talk button, to speak. On headphones, choose Open mic." }, at: Date.now() });
+    }
     // A blocked or missing microphone must not strand a judge on a proposal nobody can authorize: the demo plays the
     // operator's part instead, and says so.
     const handsFree = autopilot || (withMic && mic === "blocked");

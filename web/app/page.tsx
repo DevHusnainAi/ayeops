@@ -179,9 +179,9 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               </button>
             </div>
             <p className="mt-5 max-w-lg text-[13px] text-muted-2">
-              Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. No
-              microphone, or it&rsquo;s blocked? The demo plays the operator&rsquo;s part for you automatically. No
-              account, nothing to install.
+              Start session uses your microphone. On headphones you just talk; on speakers you hold Space to speak, so
+              the agent never hears itself. No microphone, or it&rsquo;s blocked? The demo plays the operator&rsquo;s
+              part for you automatically. No account, nothing to install.
             </p>
 
             <BreakIt />
