@@ -803,6 +803,25 @@ async def report_names_cause_and_prevention():
             assert "restoring the check it removed in token/verify.go" in md, md
 
 
+async def code_alone_and_spent_code_do_nothing():
+    """The claims on the How-it-works page: a code without the action and service authorizes nothing, and once a
+    code has authorized a change, reading it again runs nothing more."""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+    before = relay.CHALLENGE["executed"]
+    await ev(type="transcript.user", text=f"{code.title()}.")  # the code, without the action or the service
+    await asyncio.sleep(0)
+    assert s.pending and not s.executing and relay.CHALLENGE["executed"] == before, "a code alone must not authorize"
+    await authorize(s, ev, poll, "Roll back auth-service")
+    assert s.phase == "resolved" and relay.CHALLENGE["executed"] == before + 1
+    spoken = f"Roll back auth-service, {code.title()}."
+    await ev(type="transcript.user", text=spoken)
+    await asyncio.sleep(0)
+    await asyncio.gather(*s.tasks)
+    assert relay.CHALLENGE["executed"] == before + 1 and s.pending is None, "a spent code must not run anything again"
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1029,6 +1048,7 @@ if __name__ == "__main__":
     asyncio.run(refusal_and_recovery_deltas())
     asyncio.run(result_ignores_cascading_dependents())
     asyncio.run(report_names_cause_and_prevention())
+    asyncio.run(code_alone_and_spent_code_do_nothing())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())

@@ -49,7 +49,7 @@ def check(evidence, codes):
 def sessions(directory):
     for report in sorted(Path(directory).glob("sess_*.md")):
         record = report.with_suffix(".json")
-        codes = CODE_IN_REPORT.findall(report.read_text())
+        codes = list(dict.fromkeys(CODE_IN_REPORT.findall(report.read_text())))  # the report states each code twice
         if record.is_file() and codes:
             yield report.stem, json.loads(record.read_text()), codes
 

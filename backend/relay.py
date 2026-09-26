@@ -29,6 +29,7 @@ from array import array
 from pathlib import Path
 
 import uvicorn
+import prove_blind
 import websockets
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -1494,6 +1495,31 @@ async def list_incidents():
             "timeline": f"/incidents/{sid}.json" if MEDIA_PUBLIC and (INCIDENT_DIR / f"{sid}.json").is_file() else None,
         })
     return out
+
+
+# The code-hiding fix (13664f2) went live at 2026-09-26 07:41:48 UTC. Sessions recorded before it are reported apart:
+# they are the reason the checker exists, and folding them into the total would hide that.
+FIX_AT_MS = 1790408508000
+
+
+def proof_summary():
+    """Run prove_blind over every recorded session and report totals only -- never transcripts or audio."""
+    out = {"since_fix": {"sessions": 0, "authorizations": 0, "turns_searched": 0, "occurrences": 0},
+           "before_fix": {"sessions": 0, "authorizations": 0, "turns_searched": 0, "occurrences": 0},
+           "fix_commit": "13664f2"}
+    for _, evidence, codes in prove_blind.sessions(INCIDENT_DIR):
+        n, _, leaks = prove_blind.check(evidence, codes)
+        b = out["since_fix" if evidence.get("started_at_unix_ms", 0) >= FIX_AT_MS else "before_fix"]
+        b["sessions"] += 1
+        b["authorizations"] += n
+        b["turns_searched"] += len(evidence.get("turns", [])) + len(evidence.get("config_changes", []))
+        b["occurrences"] += len(leaks)
+    return out
+
+
+@app.get("/api/proof")
+async def proof():
+    return await asyncio.to_thread(proof_summary)
 
 
 @app.get("/api/challenge")

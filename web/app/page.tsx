@@ -119,10 +119,16 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
         }}
       />
       <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-6 py-8 lg:px-10">
-        <header className="flex items-center gap-2.5">
+        <header className="flex items-center justify-between gap-4">
           <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
             {BRAND}<span className="text-accent">.</span>
           </span>
+          <nav aria-label="Site" className="flex items-center gap-4 text-[13px] text-muted">
+            <a href="/how/" className="transition-colors hover:text-ink">How it works</a>
+            <a href="/proof/" className="transition-colors hover:text-ink">Proof</a>
+            <a href="/history/" className="transition-colors hover:text-ink">History</a>
+            <a href="https://github.com/DevHusnainAi/ayeops" className="hidden transition-colors hover:text-ink sm:inline">GitHub</a>
+          </nav>
         </header>
 
         <div className="grid flex-1 items-center gap-16 py-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-10">
@@ -173,8 +179,9 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               </button>
             </div>
             <p className="mt-5 max-w-lg text-[13px] text-muted-2">
-              Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. Run the
-              demo for me plays both sides of the incident unattended, no mic required.
+              Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. No
+              microphone, or it&rsquo;s blocked? The demo plays the operator&rsquo;s part for you automatically. No
+              account, nothing to install.
             </p>
 
             <BreakIt />

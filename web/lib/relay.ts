@@ -264,6 +264,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
         : s.feed;
       return { ...s, link, dropAt: undefined, recovery, feed: note };
     }
+    case "relay.notice":
+      return { ...s, feed: feed({ kind: "link", text: ev.message, tone: "warn" }) };
     case "relay.error":
       return { ...s, error: ev.message, feed: feed({ kind: "link", text: `Session stopped: ${ev.message}`, tone: "error" }) };
     case "relay.sent":
@@ -399,12 +401,18 @@ export function useRelay() {
       }
     }
     dispatch({ kind: "start", mic });
+    // A blocked or missing microphone must not strand a judge on a proposal nobody can authorize: the demo plays the
+    // operator's part instead, and says so.
+    const handsFree = autopilot || (withMic && mic === "blocked");
+    if (handsFree && !autopilot) {
+      dispatch({ kind: "event", ev: { type: "relay.notice", message: "No microphone available, so the demo is playing the operator's part for you." }, at: Date.now() });
+    }
 
     const ws = new WebSocket(relayUrl());
     r.ws = ws;
     // ponytail: autopilot's synthesized readback plays through the same channel as the agent's voice rather than
     // a dedicated operator-synth graph -- fine since nothing else is ever "speaking" in an unattended run.
-    if (autopilot) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "demo.autopilot" })), { once: true });
+    if (handsFree) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "demo.autopilot" })), { once: true });
     if (scenario) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "relay.scenario", service: scenario.service, errorLine: scenario.errorLine })), { once: true });
     else ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "relay.incident", fault })), { once: true });
     ws.onopen = () => {
