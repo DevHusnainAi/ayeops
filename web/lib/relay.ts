@@ -81,6 +81,7 @@ export type FeedItem =
   | { id: number; at: number; kind: "flag"; service: string; line: string }
   | { id: number; at: number; kind: "precedent"; precedent: Precedent }
   | { id: number; at: number; kind: "refusal"; service: string; requested: string; proposed: string; reason: string }
+  | { id: number; at: number; kind: "attempt"; what: string; detail: string; rule: string }
   | { id: number; at: number; kind: "link"; text: string; tone: "warn" | "ok" | "error" };
 // Plain Omit<Union, K> collapses to only the keys shared across every member; this distributes it per-variant.
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -217,6 +218,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       return { ...s, progress: ev.text };
     case "relay.flag":
       return { ...s, feed: feed({ kind: "flag", service: ev.service, line: ev.line }) };
+    case "relay.attempt":
+      return { ...s, feed: feed({ kind: "attempt", what: ev.kind, detail: ev.detail, rule: ev.rule }) };
     case "relay.refusal":
       return { ...s, feed: feed({ kind: "refusal", service: ev.service, requested: ev.requested, proposed: ev.proposed, reason: ev.reason }) };
     case "relay.precedent": {
@@ -451,9 +454,9 @@ export function useRelay() {
   }, []);
 
   const control = useCallback(
-    (type: "demo.fault" | "demo.drop" | "demo.inject", fault?: Fault) => {
+    (type: "demo.fault" | "demo.drop" | "demo.inject", extra: { fault?: Fault; text?: string } = {}) => {
       const ws = a.current.ws;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, fault }));
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...extra }));
     },
     [],
   );
@@ -474,9 +477,9 @@ export function useRelay() {
     state,
     start,
     levels,
-    injectFault: (fault: Fault) => control("demo.fault", fault),
+    injectFault: (fault: Fault) => control("demo.fault", { fault }),
     cutLink: () => control("demo.drop"),
-    injectPrompt: () => control("demo.inject"),
+    injectPrompt: (text?: string) => control("demo.inject", { text }),
     setRating,
   };
 }

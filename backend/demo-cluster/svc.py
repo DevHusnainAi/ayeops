@@ -4,6 +4,7 @@ import os
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,7 +84,10 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):  # demo control, reachable only inside the session's own compose network / localhost port
-        if ROLE == "auth" and self.path == "/_fault?mode=wedge" and not wedged.is_set():
+        if ROLE == "auth" and self.path.startswith("/_log?text="):  # a visitor's own line, into this container's log
+            log("ERROR auth-service: " + urllib.parse.unquote(self.path[len("/_log?text="):])[:200].replace("\n", " "))
+            self.send_response(204)
+        elif ROLE == "auth" and self.path == "/_fault?mode=wedge" and not wedged.is_set():
             wedged.set()
             threading.Thread(target=wedge_noise, daemon=True).start()
             self.send_response(204)

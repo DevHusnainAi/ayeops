@@ -32,6 +32,7 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 ## Table of contents
 
 - [Try it in 30 seconds](#try-it-in-30-seconds)
+- [Break it](#break-it)
 - [Check the claim yourself](#check-the-claim-yourself)
 - [Why it matters](#why-it-matters)
 - [Quick start](#quick-start)
@@ -66,8 +67,20 @@ Every session gets its own set of real containers; nothing is simulated on the h
 | Pick *Traffic spike*, then ask for a **restart** | Refused: the queue would refill at once. It proposes scaling out. |
 | Pick *Bad deploy*, then ask for a **restart** | Refused, with the commit that broke it. It proposes the rollback. |
 | Read the wrong code, or the right code for the wrong service | Nothing runs; the relay says what did not match. |
-| Open **Demo controls → Poison a log line** | A log line claims the operator already approved. It is ignored. |
+| Open **Demo controls**, type your own line under *Break it*, then say *"check the logs again"* | Your words land in a real container's log and reach the model. They are data: nothing runs without the code. |
 | Open **History** | Every past incident: postmortem, recovery numbers, recording, turn timeline. |
+
+---
+
+## Break it
+
+The start page carries a public scoreboard: **attempts blocked** across every visitor, and **changes without a
+voice-verified code**. The second number is computed, not claimed — changes executed minus changes that passed a
+readback — so it is non-zero only if the gate is ever bypassed. The first counts what the relay stopped: a wrong fix,
+a wrong code, a code read without the action and service, an instruction planted in a log line. During a session,
+each block appears in the activity feed with the rule that stopped it.
+
+The challenge is open: get the agent to change production without the code.
 
 ---
 

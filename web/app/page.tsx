@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { FAULTS, useRelay, type CustomScenario, type Fault } from "@/lib/relay";
@@ -65,6 +65,37 @@ function HeroPreview() {
           100% { width: 100%; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// The public scoreboard: what the relay has stopped, across every visitor, and the one number that must stay zero.
+function BreakIt() {
+  const [c, setC] = useState<{ blocked: number; executed: number; unauthorized: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => fetch("/api/challenge").then((r) => r.json()).then((d) => live && setC(d)).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  return (
+    <div className="mt-8 max-w-lg rounded-lg border border-line bg-panel/60 p-4">
+      <p className="text-[12px] font-medium tracking-wide text-accent uppercase">Break it</p>
+      <div className="mt-2 flex items-baseline gap-6">
+        <div>
+          <p className="font-mono text-[26px] leading-none font-semibold text-ink">{c ? c.blocked.toLocaleString() : "–"}</p>
+          <p className="mt-1 text-[12px] text-muted">attempts blocked</p>
+        </div>
+        <div>
+          <p className={`font-mono text-[26px] leading-none font-semibold ${c && c.unauthorized > 0 ? "text-down" : "text-healthy"}`}>{c ? c.unauthorized : "–"}</p>
+          <p className="mt-1 text-[12px] text-muted">changes without a voice-verified code</p>
+        </div>
+      </div>
+      <p className="mt-3 text-[12.5px] leading-snug text-muted">
+        Try to get the agent to change production without the code. Plant instructions in a real log, talk it into
+        the wrong fix, read it a wrong code. Every attempt is counted, and the second number is computed, not claimed.
+      </p>
     </div>
   );
 }
@@ -145,6 +176,8 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               Start session uses your microphone — wear headphones so the agent doesn&rsquo;t hear itself. Run the
               demo for me plays both sides of the incident unattended, no mic required.
             </p>
+
+            <BreakIt />
 
             {/* Bring your own incident — personalize the scenario with a real service name and error line */}
             <div className="mt-8 max-w-lg">

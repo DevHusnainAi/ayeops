@@ -359,6 +359,21 @@ RELEASES = json.loads((Path(__file__).parent / "demo-cluster" / "releases.json")
 # here, not a service-name match; add it if a second fault scenario per service is ever built.
 MEMORY_DIR = Path(os.environ.get("MEMORY_DIR", Path(__file__).parent / "memory"))
 MEMORY_FILE = MEMORY_DIR / "incidents.jsonl"
+
+# The "Break it" scoreboard, shared by every visitor and kept across restarts. "blocked" counts what the relay
+# stopped (a wrong fix, a wrong code, an instruction planted in a log). "unauthorized" is not a claim -- it is
+# computed: changes executed minus changes that passed a voice-verified readback. It can only be non-zero if the
+# gate were ever bypassed.
+CHALLENGE = {"blocked": 0, "executed": 0, "authorized": 0}
+with contextlib.suppress(OSError, ValueError):
+    CHALLENGE.update(json.loads((MEMORY_DIR / "challenge.json").read_text()))
+
+
+def bump(key):
+    CHALLENGE[key] += 1
+    with contextlib.suppress(OSError):
+        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        (MEMORY_DIR / "challenge.json").write_text(json.dumps(CHALLENGE))
 RELAY_SESSIONS = set()  # AssemblyAI session ids this process opened -- the only ones /api/rate will write for
 
 
@@ -598,6 +613,7 @@ class Session:
                         # is refused here, at the one place it enters state, rather than sanitized downstream.
                         self.mark("flag", f"instruction-shaped BYOI error line from the browser, refused: {error_line}")
                         await self.emit({"type": "relay.flag", "service": svc, "line": error_line})
+                        await self.blocked("instruction in the error line", error_line, "supplied text is data, never instructions")
                         error_line = ""
                     self.scenario = {"service": svc, "errorLine": error_line}
                     # Register the custom service in the cluster so inject_fault() can break it.
@@ -619,8 +635,10 @@ class Session:
                 self.up.transport.abort()  # abnormal drop: pump_upstream resumes the same session
             elif kind == "demo.inject" and self.phase in ("triage", "mitigation"):
                 inject = getattr(self.cluster, "inject_prompt", None)  # not every backend implements the attack demo
-                if inject:
-                    self.spawn(inject())
+                text = msg.get("text")
+                self.injected = getattr(self, "injected", 0) + 1
+                if inject and self.injected <= 10:  # a judge's own words in a real log, but not an unbounded firehose
+                    self.spawn(inject(text if isinstance(text, str) else None))
             elif kind == "demo.autopilot" and not self.autopilot:
                 self.autopilot = True
                 self.spawn(self.run_autopilot())
@@ -694,6 +712,7 @@ class Session:
         if INSTRUCTION_LOG.search(line):
             self.mark("flag", f"instruction-shaped log line from {service}, treated as data: {line}")
             await self.emit({"type": "relay.flag", "service": service, "line": line})
+            await self.blocked("instruction in a log line", line, "logs are data, never instructions")
 
     async def on_state(self, services):
         await self.emit({"type": "infra.state", "services": services})
@@ -1063,10 +1082,16 @@ class Session:
 
     # ---- two-stage gate: the model proposes, the operator's code authorizes, the relay executes ----
 
+    async def blocked(self, kind, detail, rule):
+        """One thing the relay stopped: counted for the public scoreboard and shown on this session's attack log."""
+        bump("blocked")
+        await self.emit({"type": "relay.attempt", "kind": kind, "detail": " ".join(detail.split())[:160], "rule": rule})
+
     async def refuse(self, service, requested, proposed, reason, error, evidence=None):
         self.mark("refusal", f"declined {requested} {service}: {reason}; a {proposed.replace('_', ' ')} is the fix")
         await self.emit({"type": "relay.refusal", "service": service, "requested": requested,
                          "proposed": proposed, "reason": reason, "evidence": evidence})
+        await self.blocked("wrong fix", f"{requested.replace('_', ' ')} {service}", reason)
         result = {"error": error}
         if evidence:
             result["what_this_undoes"] = f"{evidence['commit']}: {evidence['message']}"
@@ -1198,6 +1223,7 @@ class Session:
                 # Close to this code without being it (the STT mangled a word), or a code-shaped word from some
                 # other code: a wrong attempt either way. Anything further off is the operator talking, not
                 # authorizing -- say nothing, or the agent nags through every question and spends its nudges.
+                await self.blocked("wrong code", p["said"], "the relay checks the code, not the model")
                 await self.nudge(p, "Tell the operator in one short sentence that the code didn't match and to read it again.")
                 if self.autopilot:
                     self.try_speak_readback(p)
@@ -1207,12 +1233,15 @@ class Session:
         action_phrases = ACTION_PHRASES[p["action"]]
         svc_phrases = tuple(service_phrases(p["service"]))
         if not (heard(p["said"], action_phrases) and heard(p["said"], svc_phrases)):
+            await self.blocked("code without the action and service", p["said"],
+                               "a code alone never authorizes: the action and the service must be said too")
             await self.nudge(p, f"Tell the operator in under twelve words: say the action and the service with the "
                              f"code, for example {action_phrases[0]} {p['service']}.")
             if self.autopilot:
                 self.try_speak_readback(p)
             return
         self.pending = None  # one code = one execution
+        bump("authorized")
         self.mark("gate", f'authorized by the operator reading back "{p["said"]}" '
                   f'(confidence: {scoring["code_score"]:.0%})')
         await self.emit({"type": "relay.gate", "state": "approved", "service": p["service"], "action": p["action"],
@@ -1251,6 +1280,7 @@ class Session:
 
     async def execute(self, p, heard):
         service, action = p["service"], p["action"]
+        bump("executed")
         self.executing = True
         await self.set_phase("mitigation")
         await self.emit({"type": "relay.gate", "state": "executing", "service": service, "action": action})
@@ -1394,6 +1424,12 @@ async def list_incidents():
             "timeline": f"/incidents/{sid}.json" if MEDIA_PUBLIC and (INCIDENT_DIR / f"{sid}.json").is_file() else None,
         })
     return out
+
+
+@app.get("/api/challenge")
+async def challenge():
+    return {"blocked": CHALLENGE["blocked"], "executed": CHALLENGE["executed"],
+            "unauthorized": max(0, CHALLENGE["executed"] - CHALLENGE["authorized"])}
 
 
 @app.post("/api/rate")
