@@ -10,12 +10,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROLE, VERSION = os.environ["ROLE"], os.environ["VERSION"]
 AUTH_URL = "http://auth-service:8080/verify"
+RATE = int(os.environ.get("RATE", "1"))  # billing arrival multiplier: 8 is a traffic spike one worker cannot drain
 BAD_AUTH_VERSION = "v2.14.1"  # ships a JWKS parser that can't read the rotated signing key
 
 calls = deque(maxlen=20)  # (ok, ms) for the last ~2 s of upstream calls
 queue = {"depth": 0}
 served = {"n": 0}
 last_log = [0.0]
+wedged = threading.Event()  # set by POST /_fault?mode=wedge; lives in this process, so a restart clears it
+BACKLOG = 150  # queue depth past which billing reports itself unhealthy
 
 
 def log(line):
@@ -49,13 +52,23 @@ def gateway():
 def billing():
     workers = int(os.environ.get("WORKERS", "1"))
     while True:
-        queue["depth"] += 2  # ~20 charge jobs/s arrive
+        queue["depth"] += 2 * RATE  # ~20 charge jobs/s arrive normally
         if err := call_auth():
             log_sometimes(f"ERROR charge job failed: auth-service token verification unavailable ({err}); "
                           f"queue depth {queue['depth']}")
         else:
             queue["depth"] -= min(queue["depth"], 10 * workers)
+            if queue["depth"] > BACKLOG:
+                log_sometimes(f"ERROR consumer lag {queue['depth'] // 50}s: queue depth {queue['depth']}; arrivals "
+                              f"{20 * RATE} jobs/s exceed what {workers} worker(s) drain ({100 * workers}/s)")
         time.sleep(0.1)
+
+
+def wedge_noise():
+    while wedged.is_set():
+        log("ERROR verify timeout after 5000ms: session-cache connection pool exhausted (0/10 free, 212 waiters)")
+        log("WARN goroutines=4812 and climbing; heap 1.9GB (limit 2GB)")
+        time.sleep(2)
 
 
 def heartbeat():
@@ -69,8 +82,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # per-request access logs would drown the real signal
         pass
 
+    def do_POST(self):  # demo control, reachable only inside the session's own compose network / localhost port
+        if ROLE == "auth" and self.path == "/_fault?mode=wedge" and not wedged.is_set():
+            wedged.set()
+            threading.Thread(target=wedge_noise, daemon=True).start()
+            self.send_response(204)
+        else:
+            self.send_response(404)
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/verify":
+            if wedged.is_set():  # hang past every caller's timeout, and never answer
+                time.sleep(1)
+                return
             served["n"] += 1
             body = {"ok": True}
         elif self.path == "/healthz":
@@ -81,6 +106,11 @@ class Handler(BaseHTTPRequestHandler):
                     "p99_ms": round(lat[-1]) if lat else 0}  # ponytail: max of ~20 samples stands in for p99
             if ROLE == "billing":
                 body["queue_depth"] = queue["depth"]
+                if queue["depth"] > BACKLOG:
+                    body["error_rate"] = max(body["error_rate"], 0.5)
+                    body["p99_ms"] = max(body["p99_ms"], queue["depth"] * 20)
+            if wedged.is_set():
+                body["error_rate"], body["p99_ms"] = 1.0, 5000
         else:
             self.send_error(404)
             return

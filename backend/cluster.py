@@ -14,6 +14,8 @@ from pathlib import Path
 
 SERVICES = ["auth-service", "api-gateway", "billing-worker"]
 ACTIONS = ["rollback", "restart", "scale_up"]
+FAULTS = ["deploy", "wedge", "spike"]  # deploy: bad release -> rollback. wedge: hung process -> restart. spike: load -> scale_up
+BACKLOG = 100  # billing queue depth past which a backlog, not an outage, is the diagnosis
 DEPENDENTS = {"auth-service": ["api-gateway", "billing-worker"]}
 GOOD = {"auth-service": "v2.14.0", "api-gateway": "v5.3.0", "billing-worker": "v1.9.2"}
 BAD_AUTH = "v2.14.1"  # the deploy that breaks JWKS key parsing (see demo-cluster/svc.py)
@@ -39,6 +41,7 @@ class Cluster:
         self.deployed_at = {s: time.time() - SEED_AGE_S[s] for s in SERVICES}
         self.remediating = set()
         self.custom_services = set()  # BYOI: user-provided service names
+        self.fault_kind = "deploy"  # which of FAULTS was last injected
 
     def add_custom_service(self, svc):
         """Register a user-provided service for the BYOI scenario."""
@@ -95,6 +98,23 @@ SIM_LOGS = {
         "WARN queue depth above threshold, consumer lag rising",
     ],
 }
+SIM_FAULT_LOGS = {
+    "wedge": {
+        "auth-service": [
+            "ERROR verify timeout after 5000ms: session-cache connection pool exhausted (0/10 free, 212 waiters)",
+            "ERROR verify timeout after 5000ms: session-cache connection pool exhausted (0/10 free, 240 waiters)",
+            "WARN goroutines=4812 and climbing; heap 1.9GB (limit 2GB)",
+        ],
+        "api-gateway": ["ERROR 504 GET /v1/checkout upstream=auth-service: timeout after 500ms"],
+        "billing-worker": ["ERROR charge job failed: auth-service token verification timed out"],
+    },
+    "spike": {
+        "billing-worker": [
+            "ERROR consumer lag 9s: queue depth 412; arrivals 160 jobs/s exceed what 1 worker drains (100/s)",
+            "ERROR consumer lag 14s: queue depth 655; arrivals 160 jobs/s exceed what 1 worker drains (100/s)",
+        ],
+    },
+}
 SIM_OK_LOGS = ["INFO GET /healthz 200 3ms", "INFO request completed 200 p50=41ms"]
 
 
@@ -109,6 +129,8 @@ class SimCluster(Cluster):
         self.lines = {s: deque(maxlen=50) for s in SERVICES}
         self.on_log = None
         self.custom_error_line = None  # BYOI: user-provided error line for the custom service
+        self.wedged = None  # service whose process hangs with no bad deploy behind it (fixed by a restart)
+        self.spiked = False  # billing-worker can't drain a traffic spike (fixed by scaling out)
 
     def _all_services(self):
         """Return default + custom services."""
@@ -122,8 +144,25 @@ class SimCluster(Cluster):
         if self.on_log:
             await self.on_log(s, level(line), line)
 
-    async def inject_fault(self, scenario=None):
-        if self.broken:
+    def sim_lines(self, s):
+        if self.wedged:
+            return SIM_FAULT_LOGS["wedge"].get(s)
+        if self.spiked and s == "billing-worker":
+            return SIM_FAULT_LOGS["spike"][s]
+        return SIM_LOGS.get(s)
+
+    async def inject_fault(self, scenario=None, kind="deploy"):
+        if self.broken or self.wedged or self.spiked:
+            return
+        self.fault_kind = kind
+        if kind == "wedge":
+            self.wedged = "auth-service"
+            for line in SIM_FAULT_LOGS["wedge"]["auth-service"][:2]:
+                await self.log("auth-service", line)
+            return
+        if kind == "spike":
+            self.spiked = True
+            await self.log("billing-worker", SIM_FAULT_LOGS["spike"]["billing-worker"][0])
             return
         # BYOI: if a custom scenario is provided, break the custom service instead of auth-service.
         target = scenario["service"] if scenario and scenario.get("service") else "auth-service"
@@ -160,7 +199,9 @@ class SimCluster(Cluster):
             return "remediating"
         if s == self.broken:
             return "down"
-        src = self.broken or (self.last_broken if time.monotonic() < self.fixed_at + CASCADE_S else None)
+        if s == self.wedged or (self.spiked and s == "billing-worker"):
+            return "degraded"
+        src = self.broken or self.wedged or (self.last_broken if time.monotonic() < self.fixed_at + CASCADE_S else None)
         return "degraded" if src and s in DEPENDENTS.get(src, ()) else "healthy"
 
     async def health(self):
@@ -191,6 +232,12 @@ class SimCluster(Cluster):
             else:
                 await progress(f"{action.replace('_', ' ')} of {s} under way")
                 await asyncio.sleep(ROLLOUT_S)
+                if action == "restart" and self.wedged == s:  # a fresh process has no leaked pool
+                    self.wedged, self.last_broken, self.fixed_at = None, s, time.monotonic()
+                    await self.log(s, f"INFO {s} restarted: ready")
+                elif action == "scale_up" and self.spiked and s == "billing-worker":
+                    self.spiked = False
+                    await self.log(s, "INFO scaled to 3 workers; consumer lag draining")
         finally:
             self.remediating.discard(s)
         await progress(f"{s} is {self.status(s)}")
@@ -200,12 +247,14 @@ class SimCluster(Cluster):
     async def run(self, on_state, on_log):
         self.on_log = on_log
         while True:
-            self.queue_depth = max(0, self.queue_depth + (10 if self.broken else -40))  # per 0.5 s tick
+            # per 0.5 s tick
+            delta = 60 if self.spiked else 10 if self.broken or self.wedged else -40
+            self.queue_depth = max(0, self.queue_depth + delta)
             for s in self._all_services():
                 st = self.status(s)
                 if st in ("down", "degraded") and random.random() < 0.6:
-                    if s in SIM_LOGS:
-                        await self.log(s, random.choice(SIM_LOGS[s]))
+                    if lines := self.sim_lines(s):
+                        await self.log(s, random.choice(lines))
                     elif s == self.broken and self.custom_error_line:
                         await self.log(s, self.custom_error_line)
                     elif st == "down":
@@ -245,6 +294,11 @@ def probe(port):
         return None
 
 
+def post_fault(port, mode):
+    urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/_fault?mode={mode}", method="POST"),
+                           timeout=2).read()
+
+
 class DockerCluster(Cluster):
     """Real containers from demo-cluster/: real crash loops, real logs, real rollbacks. Every session gets its own
     compose project (own network, own ephemeral ports), torn down when the session ends, so concurrent viewers
@@ -257,13 +311,14 @@ class DockerCluster(Cluster):
         super().__init__()
         self.project = f"iv-{uuid.uuid4().hex[:8]}"
         self.workers = 1
+        self.spike = False
 
     def describe(self):
         return {"mode": "docker", "real": True, "label": "real containers", "project": self.project}
 
     def env(self):
         return {**os.environ, **{VERSION_ENV[s]: h[-1] for s, h in self.history.items()},
-                "BILLING_WORKERS": str(self.workers),
+                "BILLING_WORKERS": str(self.workers), "BILLING_RATE": "8" if self.spike else "1",
                 # Containers default to UTC; the dashboard runs on host time. On screen that made the log tape
                 # disagree with the incident clock by hours, which reads as fake. Hand them the host's zone.
                 "TZ": os.environ.get("TZ") or time.strftime("%Z")}
@@ -276,8 +331,15 @@ class DockerCluster(Cluster):
         rows = json.loads(raw) if raw.startswith("[") else [json.loads(r) for r in raw.splitlines() if r.startswith("{")]
         return {r["Service"]: r for r in rows}
 
-    async def inject_fault(self, scenario=None):
-        if self.history["auth-service"][-1] != BAD_AUTH:
+    async def inject_fault(self, scenario=None, kind="deploy"):
+        self.fault_kind = kind
+        if kind == "wedge":  # runtime state inside the process, so only a restart clears it -- not a redeploy
+            port = port_of((await self.ps()).get("auth-service", {}))
+            await asyncio.to_thread(post_fault, port, "wedge")
+        elif kind == "spike":  # the arrival rate lives in the container's env, so a restart alone can't clear it
+            self.spike, self.workers = True, 1
+            await self.compose("up", "-d", "billing-worker")
+        elif self.history["auth-service"][-1] != BAD_AUTH:
             self.ship("auth-service", BAD_AUTH)
             await self.compose("up", "-d", "auth-service")
 

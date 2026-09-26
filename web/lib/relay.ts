@@ -61,6 +61,13 @@ export type Precedent = { service: string; action: string; root_cause: string; m
 export type RecoveryDelta = { error_rate_before: number; error_rate_after: number; p99_before: number; p99_after: number };
 // Bring your own incident: a custom service name and error line the user provides before the session starts.
 // null means "use the default scenario."
+export type Fault = "deploy" | "wedge" | "spike";
+// The three ways the demo cluster can fail. The right fix differs in each -- that is the point of having three.
+export const FAULTS: { id: Fault; label: string; action: string; blurb: string }[] = [
+  { id: "deploy", label: "Bad deploy", action: "Ship a bad deploy", blurb: "A release crash-loops auth-service. The fix is a rollback." },
+  { id: "wedge", label: "Hung process", action: "Wedge auth-service", blurb: "auth-service hangs with nothing deployed. A rollback has nothing to undo; the fix is a restart." },
+  { id: "spike", label: "Traffic spike", action: "Spike billing load", blurb: "billing-worker can't drain a surge. Restarting refills it; the fix is scaling out." },
+];
 export type CustomScenario = { service: string; errorLine?: string } | null;
 
 // The unified Activity feed: every event an operator would want to see in one chronological order, instead of
@@ -73,7 +80,7 @@ export type FeedItem =
   | { id: number; at: number; kind: "agent_request"; req: AgentRequest }
   | { id: number; at: number; kind: "flag"; service: string; line: string }
   | { id: number; at: number; kind: "precedent"; precedent: Precedent }
-  | { id: number; at: number; kind: "refusal"; service: string; requested: string; proposed: string; evidence: Evidence }
+  | { id: number; at: number; kind: "refusal"; service: string; requested: string; proposed: string; reason: string }
   | { id: number; at: number; kind: "link"; text: string; tone: "warn" | "ok" | "error" };
 // Plain Omit<Union, K> collapses to only the keys shared across every member; this distributes it per-variant.
 type DistOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -211,7 +218,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
     case "relay.flag":
       return { ...s, feed: feed({ kind: "flag", service: ev.service, line: ev.line }) };
     case "relay.refusal":
-      return { ...s, feed: feed({ kind: "refusal", service: ev.service, requested: ev.requested, proposed: ev.proposed, evidence: ev.evidence }) };
+      return { ...s, feed: feed({ kind: "refusal", service: ev.service, requested: ev.requested, proposed: ev.proposed, reason: ev.reason }) };
     case "relay.precedent": {
       const precedent: Precedent = {
         service: ev.service, action: ev.action, root_cause: ev.root_cause, mttr_s: ev.mttr_s, resolved_at: ev.resolved_at,
@@ -349,7 +356,7 @@ export function useRelay() {
     src.onended = () => r.sources.delete(src);
   }, []);
 
-  const start = useCallback(async (withMic: boolean, autopilot = false, scenario: CustomScenario = null) => {
+  const start = useCallback(async (withMic: boolean, autopilot = false, scenario: CustomScenario = null, fault: Fault = "deploy") => {
     const r = a.current;
     if (r.ws) return;
     // Two contexts, both created on this click so autoplay rules allow both: ctx captures the mic at the
@@ -396,6 +403,7 @@ export function useRelay() {
     // a dedicated operator-synth graph -- fine since nothing else is ever "speaking" in an unattended run.
     if (autopilot) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "demo.autopilot" })), { once: true });
     if (scenario) ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "relay.scenario", service: scenario.service, errorLine: scenario.errorLine })), { once: true });
+    else ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "relay.incident", fault })), { once: true });
     ws.onopen = () => {
       r.opened = true;
     };
@@ -443,9 +451,9 @@ export function useRelay() {
   }, []);
 
   const control = useCallback(
-    (type: "demo.fault" | "demo.drop" | "demo.inject") => {
+    (type: "demo.fault" | "demo.drop" | "demo.inject", fault?: Fault) => {
       const ws = a.current.ws;
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type }));
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, fault }));
     },
     [],
   );
@@ -466,7 +474,7 @@ export function useRelay() {
     state,
     start,
     levels,
-    shipBadDeploy: () => control("demo.fault"),
+    injectFault: (fault: Fault) => control("demo.fault", fault),
     cutLink: () => control("demo.drop"),
     injectPrompt: () => control("demo.inject"),
     setRating,

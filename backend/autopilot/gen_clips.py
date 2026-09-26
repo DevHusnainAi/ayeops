@@ -28,7 +28,9 @@ def render(text, name):
 
 
 if __name__ == "__main__":
-    render("Roll back auth service,", "prefix")
+    render("Roll back auth service,", "prefix")  # the rollback clip keeps its original name
+    render("Restart auth service,", "prefix_restart")
+    render("Scale up billing worker,", "prefix_scale_up")
     for w in CODE_WORDS:
         render(w, w)
-    print(f"wrote {len(CODE_WORDS) + 1} clips to {OUT}")
+    print(f"wrote {len(CODE_WORDS) + 3} clips to {OUT}")

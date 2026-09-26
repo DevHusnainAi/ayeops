@@ -8,6 +8,7 @@ import {
   MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
+import { FAULTS, type Fault } from "@/lib/relay";
 import type {
   AgentRequest, ApiEvent, FeedItem, Gate, LinkState, LogLine, ModelContext, Phase, Precedent, RecoveryDelta,
   RelayState, Service, Status,
@@ -300,7 +301,7 @@ export function IncidentBar({ s }: { s: RelayState }) {
 // with the product for space. Styled like an internal dev tool, not a feature.
 export function DemoControls({
   s, open, onClose, onFault, onCut, onInject,
-}: { s: RelayState; open: boolean; onClose: () => void; onFault: () => void; onCut: () => void; onInject: () => void }) {
+}: { s: RelayState; open: boolean; onClose: () => void; onFault: (f: Fault) => void; onCut: () => void; onInject: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(open, onClose, ref);
   if (!open) return null;
@@ -312,9 +313,11 @@ export function DemoControls({
         <Bug aria-hidden size={12} /> Demo &amp; testing controls
       </p>
       <div className="flex flex-col gap-1.5">
-        <button type="button" className={`${BTN_QUIET} justify-start`} disabled={!((s.phase === "monitoring" || s.phase === "resolved") && live)} onClick={onFault}>
-          <span className="flex items-center gap-2"><Rocket aria-hidden size={13} /> Ship a bad deploy</span>
-        </button>
+        {FAULTS.map((f) => (
+          <button key={f.id} type="button" className={`${BTN_QUIET} justify-start`} disabled={!((s.phase === "monitoring" || s.phase === "resolved") && live)} onClick={() => onFault(f.id)}>
+            <span className="flex items-center gap-2"><Rocket aria-hidden size={13} /> {f.action}</span>
+          </button>
+        ))}
         <button type="button" className={`${BTN_QUIET} justify-start`} disabled={!(active && live)} onClick={onCut}>
           <span className="flex items-center gap-2"><Unplug aria-hidden size={13} /> Cut voice link</span>
         </button>
@@ -770,8 +773,8 @@ function FeedRow({ item }: { item: FeedItem }) {
         <div className="flex items-start gap-2 rounded-md bg-healthy/10 px-3 py-2 text-[12.5px] text-healthy">
           <ShieldCheck aria-hidden size={14} className="mt-0.5 shrink-0" />
           <span>
-            Declined a {item.requested} on <span className="font-mono">{item.service}</span> — {item.evidence.commit}{" "}
-            ({item.evidence.message}) means it&rsquo;ll crash-loop again; proposed a {item.proposed.replace("_", " ")} instead
+            Declined a {item.requested.replace("_", " ")} on <span className="font-mono">{item.service}</span> — {item.reason};
+            proposed a {item.proposed.replace("_", " ")} instead
           </span>
         </div>
       );

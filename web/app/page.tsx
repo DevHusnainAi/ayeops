@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { BRAND } from "@/lib/brand";
-import { useRelay, type CustomScenario } from "@/lib/relay";
+import { FAULTS, useRelay, type CustomScenario, type Fault } from "@/lib/relay";
 import {
   ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
   LiveAgentRequest, LiveClearance, LogTape, ModelContextCard, Panel, PrecedentCard, RatingPanel, ReportDrawer,
@@ -69,7 +69,8 @@ function HeroPreview() {
   );
 }
 
-function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean, scenario?: CustomScenario) => void }) {
+function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean, scenario?: CustomScenario, fault?: Fault) => void }) {
+  const [fault, setFault] = useState<Fault>("deploy");
   const [svc, setSvc] = useState("");
   const [errLine, setErrLine] = useState("");
   const [showCustom, setShowCustom] = useState(false);
@@ -106,17 +107,36 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               {BRAND} pages you when production breaks, finds the cause on its own, and changes nothing until you
               authorize the fix — by reading a code the AI is never shown.
             </p>
-            <div className="mt-9 flex flex-wrap items-center gap-3">
-              <button type="button" className={`${BTN} px-5 py-2.5 text-[14px]`} onClick={() => onStart(true, undefined, scenario)}>
+            <fieldset className="mt-8 max-w-lg" disabled={!!scenario}>
+              <legend className="mb-2 text-[12px] font-medium tracking-wide text-muted uppercase">Choose the incident</legend>
+              <div className="grid grid-cols-3 gap-2">
+                {FAULTS.map((f) => (
+                  <label
+                    key={f.id}
+                    className={`cursor-pointer rounded-md border px-3 py-2 text-center text-[13px] transition-colors has-[:disabled]:opacity-40 ${
+                      fault === f.id ? "border-accent bg-accent/10 text-ink" : "border-line bg-panel text-muted hover:border-accent/40 hover:text-ink"
+                    }`}
+                  >
+                    <input type="radio" name="fault" className="sr-only" checked={fault === f.id} onChange={() => setFault(f.id)} />
+                    {f.label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 min-h-10 text-[12.5px] leading-snug text-muted-2">
+                {scenario ? "Your own incident replaces this." : FAULTS.find((f) => f.id === fault)?.blurb}
+              </p>
+            </fieldset>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <button type="button" className={`${BTN} px-5 py-2.5 text-[14px]`} onClick={() => onStart(true, undefined, scenario, fault)}>
                 Start session
               </button>
-              <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-[14px]`} onClick={() => onStart(false, true, scenario)}>
+              <button type="button" className={`${BTN_QUIET} px-5 py-2.5 text-[14px]`} onClick={() => onStart(false, true, scenario, fault)}>
                 Run the demo for me
               </button>
               <button
                 type="button"
                 className="px-1 py-2.5 text-[14px] text-muted underline decoration-line underline-offset-4 transition-colors hover:text-ink hover:decoration-muted"
-                onClick={() => onStart(false, false, scenario)}
+                onClick={() => onStart(false, false, scenario, fault)}
               >
                 Watch without a microphone
               </button>
@@ -139,7 +159,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               {showCustom && (
                 <form
                   className="mt-3 space-y-3 rounded-lg border border-line bg-panel/60 p-4"
-                  onSubmit={(e) => { e.preventDefault(); if (scenario) onStart(true, undefined, scenario); }}
+                  onSubmit={(e) => { e.preventDefault(); if (scenario) onStart(true, undefined, scenario, fault); }}
                 >
                   <div>
                     <label htmlFor="byoi-svc" className="mb-1 block text-[11.5px] text-muted">Service name</label>
@@ -203,7 +223,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
 }
 
 export default function Home() {
-  const { state: s, start, levels, shipBadDeploy, cutLink, injectPrompt, setRating } = useRelay();
+  const { state: s, start, levels, injectFault, cutLink, injectPrompt, setRating } = useRelay();
   const [reportOpen, setReportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   if (!s.started) return <Welcome onStart={start} />;
@@ -215,7 +235,7 @@ export default function Home() {
   return (
     <main className="relative flex min-h-dvh flex-col lg:h-dvh">
       <AppHeader s={s} onOpenReport={() => setReportOpen(true)} onToggleTools={() => setToolsOpen((o) => !o)} toolsOpen={toolsOpen} />
-      <DemoControls s={s} open={toolsOpen} onClose={() => setToolsOpen(false)} onFault={shipBadDeploy} onCut={cutLink} onInject={injectPrompt} />
+      <DemoControls s={s} open={toolsOpen} onClose={() => setToolsOpen(false)} onFault={injectFault} onCut={cutLink} onInject={injectPrompt} />
       <IncidentBar s={s} />
       <LinkToast s={s} />
 

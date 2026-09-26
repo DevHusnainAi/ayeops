@@ -116,6 +116,16 @@ record nobody would otherwise write.
    turn timeline are downloaded next to it as evidence.
 9. Ask *"What happened?"* and it answers from the verified record — not from its own recollection.
 
+The demo cluster fails three ways, and the right fix differs each time. Pick one on the start screen:
+
+| Incident | What breaks | Right fix | What the relay refuses |
+|---|---|---|---|
+| Bad deploy | `auth-service v2.14.1` crash-loops | rollback | a restart, which would crash-loop again |
+| Hung process | `auth-service` hangs; nothing was deployed | restart | a rollback, which has nothing to undo |
+| Traffic spike | `billing-worker` can't drain a surge | scale up | a restart or rollback, which refill or change nothing |
+
+Each refusal is enforced by the relay, not the prompt, and states its reason.
+
 Mid-incident, the demo can **cut the AssemblyAI connection on purpose**. The relay is back in under two
 seconds with full context, and the pending authorization still works.
 

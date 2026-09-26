@@ -20,5 +20,5 @@ services:
     ports: ["127.0.0.1::8080"]
   billing-worker:
     <<: *service
-    environment: {ROLE: billing, VERSION: "${BILLING_VERSION:-v1.9.2}", WORKERS: "${BILLING_WORKERS:-1}", TZ: "${TZ:-UTC}"}
+    environment: {ROLE: billing, VERSION: "${BILLING_VERSION:-v1.9.2}", WORKERS: "${BILLING_WORKERS:-1}", RATE: "${BILLING_RATE:-1}", TZ: "${TZ:-UTC}"}
     ports: ["127.0.0.1::8080"]

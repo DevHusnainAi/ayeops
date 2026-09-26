@@ -745,6 +745,105 @@ async def result_ignores_cascading_dependents():
         cluster.CASCADE_S = saved
 
 
+
+async def one_incident(kind):
+    """Drive a session to an open incident of this kind; returns (session, ev, poll)."""
+    s, ev = session()
+
+    async def poll():
+        await s.on_state(await s.cluster.health())
+
+    await ev(type="session.ready", session_id="s1")
+    await poll()
+    await s.on_control(json.dumps({"type": "demo.fault", "fault": kind}))
+    await asyncio.gather(*s.tasks)
+    await poll()
+    assert s.phase == "triage", (kind, s.phase)
+    await ev(type="reply.started")
+    await ev(type="reply.done", status="completed")
+    return s, ev, poll
+
+
+async def authorize(s, ev, poll, spoken):
+    code = s.pending["code"]
+    await ev(type="transcript.user", text=f"{spoken}, {code.title()}.")
+    await asyncio.sleep(0)
+    await asyncio.gather(*s.tasks)
+    await poll()
+
+
+async def wedged_process_needs_restart():
+    """Same symptom as the bad deploy, opposite fix: nothing was deployed, so a rollback has nothing to undo and the
+    relay says so; the restart it steers to is authorized, runs, and is remembered as a wedge -- not a deploy."""
+    s, ev, poll = await one_incident("wedge")
+    health = await s.cluster.health()
+    assert health["auth-service"]["status"] == "degraded" and health["auth-service"]["previous_version"] is None
+    assert not sent(s.ws, "relay.refusal"), "nothing refused yet"
+
+    r = await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    assert "error" in r and "not a bad release" in r["error"] and "restart" in r["error"], r
+    refusal = sent(s.ws, "relay.refusal")[-1]
+    assert (refusal["requested"], refusal["proposed"]) == ("rollback", "restart") and refusal["reason"], refusal
+    assert not s.pending
+
+    r = await s.run_tool("propose_remediation", {"service": "auth-service", "action": "restart"})
+    assert r["status"] == "awaiting_authorization", r
+    await authorize(s, ev, poll, "Restart auth-service")
+    assert s.phase == "resolved", s.phase
+    entry = relay.load_memory()[-1]
+    assert entry["kind"] == "wedge" and entry["action"] == "restart" and "wedged" in entry["root_cause"], entry
+
+
+async def traffic_spike_needs_scale_up():
+    """Only billing-worker suffers, everything it depends on is healthy: neither a rollback nor a restart helps,
+    and the relay refuses both with a reason before they reach the operator."""
+    s, ev, poll = await one_incident("spike")
+    health = await s.cluster.health()
+    assert {n: v["status"] for n, v in health.items()} == {"auth-service": "healthy", "api-gateway": "healthy",
+                                                          "billing-worker": "degraded"}, health
+    s.cluster.queue_depth = 400  # the sim's backlog builds per tick; this is the state a few seconds in
+
+    r = await s.run_tool("propose_remediation", {"service": "billing-worker", "action": "restart"})
+    assert "error" in r and "backlog" in r["error"] and "scale up" in r["error"], r
+    r = await s.run_tool("propose_remediation", {"service": "billing-worker", "action": "rollback"})
+    assert "error" in r and "scale up" in r["error"], r
+    assert [x["proposed"] for x in sent(s.ws, "relay.refusal")] == ["scale_up", "scale_up"]
+
+    r = await s.run_tool("propose_remediation", {"service": "billing-worker", "action": "scale_up"})
+    assert r["status"] == "awaiting_authorization", r
+    await authorize(s, ev, poll, "Scale up billing-worker")
+    assert s.phase == "resolved", s.phase
+    assert relay.load_memory()[-1]["kind"] == "spike"
+
+
+async def precedent_matches_the_kind_of_fault():
+    """A past rollback of auth-service is no precedent for a wedged auth-service -- pointing at it would steer the
+    agent to the wrong fix."""
+    real_dir, real_file = relay.MEMORY_DIR, relay.MEMORY_FILE
+    relay.MEMORY_DIR = Path(tempfile.mkdtemp())
+    relay.MEMORY_FILE = relay.MEMORY_DIR / "incidents.jsonl"
+    try:
+        relay.append_memory({"service": "auth-service", "action": "rollback", "root_cause": "x", "mttr_s": 30,
+                             "resolved_at": time.time()})  # an old entry: no kind, so a bad deploy
+        assert relay.precedent_for("auth-service")["action"] == "rollback"
+        assert relay.precedent_for("auth-service", "wedge") is None
+    finally:
+        relay.MEMORY_DIR, relay.MEMORY_FILE = real_dir, real_file
+
+
+async def chosen_incident_starts_by_itself():
+    """The welcome page's choice reaches the relay and the incident it names is what ships."""
+    s, ev = session()
+    await ev(type="session.ready", session_id="s1")
+    await s.on_state(await s.cluster.health())
+    await s.on_control(json.dumps({"type": "relay.incident", "fault": "spike"}))
+    assert s.fault == "spike"
+    await s.on_control(json.dumps({"type": "relay.incident", "fault": "rm -rf"}))
+    assert s.fault == "spike", "an unknown fault name is ignored, not passed to the cluster"
+    await asyncio.gather(*s.tasks)  # _auto_fault waits out its own settle timer, then injects
+    assert s.cluster.spiked and not s.cluster.broken
+
+
 async def byoi_first_session_keeps_greeting():
     """A fresh BYOI session must get the same greeting a default session does -- without one, AssemblyAI never
     starts a reply, expect_reply (set on session.ready for any fresh, no-incident-yet session) never clears,
@@ -831,6 +930,10 @@ if __name__ == "__main__":
     asyncio.run(incident_flow())
     asyncio.run(refusal_and_recovery_deltas())
     asyncio.run(result_ignores_cascading_dependents())
+    asyncio.run(wedged_process_needs_restart())
+    asyncio.run(traffic_spike_needs_scale_up())
+    asyncio.run(precedent_matches_the_kind_of_fault())
+    asyncio.run(chosen_incident_starts_by_itself())
     asyncio.run(byoi_first_session_keeps_greeting())
     asyncio.run(byoi_scenario())
     asyncio.run(byoi_root_cause_falls_back_to_operator_error_line())
