@@ -24,7 +24,7 @@ export default function HowPage() {
   return (
     <SiteShell current="how">
       <p className="mt-14 text-[12px] font-medium tracking-[0.2em] text-accent uppercase">How it works</p>
-      <h1 className="mt-3 text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-bold tracking-tight text-ink text-balance">
+      <h1 className="mt-3 text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-bold tracking-tight text-ink text-balance max-w-4xl">
         An AI that can fix production, and cannot change a thing until a human reads back a code it never saw.
       </h1>
       <div className="mt-8 flex flex-wrap gap-3">
@@ -33,7 +33,7 @@ export default function HowPage() {
       </div>
 
       <H2 id="why">Why</H2>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         The worst outages are often made worse by the fix. In January 2017 an engineer at GitLab, working through a
         struggling database, ran a delete on the wrong server and removed about 300 GB of production data
         (<a className="text-accent underline decoration-line underline-offset-4" href="https://about.gitlab.com/blog/postmortem-of-database-outage-of-january-31/">GitLab&rsquo;s own postmortem</a>).
@@ -41,14 +41,14 @@ export default function HowPage() {
         had no adequate safeguards
         (<a className="text-accent underline decoration-line underline-offset-4" href="https://www.sec.gov/newsroom/press-releases/2013-222">SEC</a>).
       </p>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         At 3am the on-call engineer is impaired, alone and unaccountable. An AI that can restart production is an audit
         finding unless someone can show who authorized what. AyeOps does the thinking, and leaves the authority to a human
         with a check the model cannot fake.
       </p>
 
       <H2 id="how">How it works</H2>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         The same instant, two views. The operator sees the code. The model receives a payload that has no code in it,
         because the relay never sends it one.
       </p>
@@ -83,7 +83,7 @@ export default function HowPage() {
         </div>
       </div>
 
-      <ol className="mt-8 space-y-3">
+      <ol className="mt-8 grid gap-3 lg:grid-cols-2">
         {STEPS.map(([t, d], i) => (
           <li key={t} className="flex gap-4 rounded-lg border border-line bg-panel/60 p-4">
             <span className="font-mono text-[13px] font-semibold text-accent">{String(i + 1).padStart(2, "0")}</span>
@@ -96,7 +96,7 @@ export default function HowPage() {
       </ol>
 
       <H2 id="rules">Rules the relay enforces</H2>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         These are checked in code, not requested in a prompt, and each has a test in the repository.
       </p>
       <dl className="mt-6 divide-y divide-line rounded-lg border border-line bg-panel/60">
@@ -109,7 +109,7 @@ export default function HowPage() {
       </dl>
 
       <H2 id="measured">Measured</H2>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         On real Docker containers against the real API, including a deliberate mid-incident link cut. Time to recover
         runs from detection to all-green, and latency from the operator&rsquo;s last voiced frame.
       </p>
@@ -129,7 +129,7 @@ export default function HowPage() {
       </div>
 
       <H2 id="proof">Proof, and a challenge</H2>
-      <p className="mt-4 text-[1rem] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[1rem] leading-relaxed text-muted">
         <a className="text-accent underline decoration-line underline-offset-4" href="/proof/">The proof page</a> runs a checker
         over AssemblyAI&rsquo;s own record of every session and reports how many approval codes it found on the
         model&rsquo;s side. The start page has a public scoreboard of every attempt to bypass the gate. It is open:

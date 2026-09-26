@@ -32,10 +32,10 @@ export default function ProofPage() {
   return (
     <SiteShell current="proof">
       <p className="mt-14 text-[12px] font-medium tracking-[0.2em] text-accent uppercase">Proof</p>
-      <h1 className="mt-3 text-[clamp(2rem,4.5vw,3rem)] leading-[1.05] font-bold tracking-tight text-ink text-balance">
+      <h1 className="mt-3 text-[clamp(2rem,4.5vw,3rem)] leading-[1.05] font-bold tracking-tight text-ink text-balance max-w-4xl">
         The claim is that the model never sees the code. This page checks it.
       </h1>
-      <p className="mt-5 text-[1.02rem] leading-relaxed text-muted">
+      <p className="mt-5 max-w-3xl text-[1.02rem] leading-relaxed text-muted">
         Every session is recorded by AssemblyAI, a party the operator does not control. A checker reads that record
         and searches everything on the model&rsquo;s side for the approval code the operator read back: system prompts,
         tool schemas, every tool call and result, every reply instruction, every agent turn. It runs on the live server
@@ -62,7 +62,7 @@ export default function ProofPage() {
       <pre className="mt-4 overflow-x-auto rounded-lg border border-line bg-panel p-4 font-mono text-[12.5px] leading-relaxed text-ink">{`git clone https://github.com/DevHusnainAi/ayeops.git && cd ayeops/backend
 uv run prove_blind.py --selftest   # the checker fails on a planted leak, passes a clean session
 uv run prove_blind.py incidents/   # run it on any recorded sessions`}</pre>
-      <p className="mt-4 text-[13.5px] leading-relaxed text-muted">
+      <p className="mt-4 max-w-3xl text-[13.5px] leading-relaxed text-muted">
         The one place a code may appear is the operator&rsquo;s own readback turn, after the operator said it. The
         operator&rsquo;s speech reaches the model as a transcript, as it must. What the model cannot do is see a code
         before a human speaks it, produce one, or approve on its own: the relay, not the model, checks the readback and
@@ -70,7 +70,7 @@ uv run prove_blind.py incidents/   # run it on any recorded sessions`}</pre>
       </p>
 
       <H2 id="also">Also checkable</H2>
-      <ul className="mt-4 space-y-2 text-[13.5px] leading-relaxed text-muted">
+      <ul className="mt-4 max-w-3xl space-y-2 text-[13.5px] leading-relaxed text-muted">
         <li>
           <a className="text-accent underline decoration-line underline-offset-4" href="/">The Break it scoreboard</a>{" "}
           counts every attempt the relay stopped. Its second number is computed, not claimed: changes executed minus
