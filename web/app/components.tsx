@@ -146,7 +146,7 @@ export function AppHeader({
   s, onOpenReport, onToggleTools, toolsOpen,
 }: { s: RelayState; onOpenReport?: () => void; onToggleTools: () => void; toolsOpen: boolean }) {
   return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line bg-board/80 px-5 py-3 backdrop-blur">
+    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 page-x border-b border-line bg-board/80 py-3 backdrop-blur">
       <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
         {BRAND}<span className="text-accent">.</span>
       </span>
@@ -257,7 +257,7 @@ export function IncidentBar({ s }: { s: RelayState }) {
   const id = incidentId(s.incidentAt);
   if (!id) {
     return (
-      <div className="flex items-center gap-2 border-b border-line bg-panel/40 px-5 py-2 text-[13px] text-muted">
+      <div className="page-x flex items-center gap-2 border-b border-line bg-panel/40 py-2 text-[13px] text-muted">
         <span aria-hidden className="size-1.5 rounded-full bg-healthy" />
         All services normal — watching for the next incident
         <span className="ml-auto"><InfraChip infra={s.infra} count={Object.keys(s.services).length} /></span>
@@ -272,7 +272,7 @@ export function IncidentBar({ s }: { s: RelayState }) {
   const healthy = names.filter((n) => s.services[n].status === "healthy").length;
   const broken = names.length - healthy;
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-panel/40 px-5 py-2.5">
+    <div className="page-x flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line bg-panel/40 py-2.5">
       <div className="flex items-center gap-2.5">
         <span className="font-mono text-[13px] font-semibold text-ink">{id}</span>
         <span className="text-[13px] text-muted">{lead ? `${lead} incident` : "Incident"}</span>
@@ -563,6 +563,38 @@ export function Waveform({ levels }: { levels: () => { operator: number; agent: 
     return () => cancelAnimationFrame(raf);
   }, [levels]);
   return <canvas ref={ref} role="img" aria-label="Voice activity: you above the line, the agent below" className="h-10 w-full" />;
+}
+
+// Hold-to-talk for speakers: the mic is heard only while held, and the agent is cut off the moment it is pressed.
+export function TalkButton({ s, onPtt, onHold }: { s: RelayState; onPtt: (on: boolean) => void; onHold: (down: boolean) => void }) {
+  useEffect(() => {
+    if (!s.ptt) return;
+    const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+    const down = (e: KeyboardEvent) => { if (e.code === "Space" && !e.repeat && !typing(e.target)) { e.preventDefault(); onHold(true); } };
+    const up = (e: KeyboardEvent) => { if (e.code === "Space" && !typing(e.target)) { e.preventDefault(); onHold(false); } };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, [s.ptt, onHold]);
+  if (s.mic !== "on") return null;
+  return s.ptt ? (
+    <span className="flex items-center gap-2">
+      <button
+        type="button"
+        className={`${BTN} select-none`}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); onHold(true); }}
+        onPointerUp={() => onHold(false)}
+        onPointerCancel={() => onHold(false)}
+      >
+        Hold to talk (Space)
+      </button>
+      <button type="button" className="text-[11.5px] text-muted underline decoration-line underline-offset-4 hover:text-ink" onClick={() => onPtt(false)}>Open mic</button>
+    </span>
+  ) : (
+    <button type="button" className="text-[11.5px] text-muted underline decoration-line underline-offset-4 hover:text-ink" onClick={() => onPtt(true)}>
+      On speakers? Hold to talk
+    </button>
+  );
 }
 
 export function Speaking({ s }: { s: RelayState }) {

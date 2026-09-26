@@ -8,7 +8,7 @@ export function SiteShell({ children, current }: { children: ReactNode; current:
   );
   return (
     <main className="min-h-dvh bg-board">
-      <div className="mx-auto max-w-6xl px-6 py-8 lg:px-10">
+      <div className="mx-auto max-w-7xl px-6 py-8 lg:px-10">
         <header className="flex items-center justify-between gap-4">
           <a href="/" className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
             {BRAND}<span className="text-accent">.</span>

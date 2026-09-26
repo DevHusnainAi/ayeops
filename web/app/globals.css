@@ -91,3 +91,7 @@ body {
     transition-duration: 1ms !important;
   }
 }
+
+/* One page width for every screen: content sits in an 80rem column with 2.5rem side padding, bars and borders stay
+   full-bleed, and below that the padding falls back to 1.25rem. Matches max-w-7xl + lg:px-10 on the start page. */
+.page-x { padding-inline: max(1.25rem, calc((100% - 80rem) / 2 + 2.5rem)); }

@@ -7,7 +7,7 @@ import { FAULTS, useRelay, type CustomScenario, type Fault } from "@/lib/relay";
 import {
   ActivityFeed, ApiPanel, AppHeader, BTN, BTN_QUIET, CodeWords, DemoControls, IncidentBar, LinkToast,
   LiveAgentRequest, LiveClearance, LogTape, ModelContextCard, Panel, PrecedentCard, RatingPanel, ReportDrawer,
-  Speaking, Strips, Waveform, WatchingHero,
+  Speaking, Strips, TalkButton, Waveform, WatchingHero,
 } from "./components";
 
 function HeroWaveform() {
@@ -118,7 +118,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
             "radial-gradient(46rem 30rem at 8% 92%, color-mix(in oklab, var(--color-remediating) 8%, transparent), transparent 55%)",
         }}
       />
-      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-6 py-8 lg:px-10">
+      <div className="relative mx-auto flex min-h-dvh max-w-7xl flex-col px-6 py-8 lg:px-10">
         <header className="flex items-center justify-between gap-4">
           <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
             {BRAND}<span className="text-accent">.</span>
@@ -263,7 +263,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
 }
 
 export default function Home() {
-  const { state: s, start, levels, injectFault, cutLink, injectPrompt, setRating } = useRelay();
+  const { state: s, start, levels, injectFault, cutLink, injectPrompt, setRating, setPtt, hold } = useRelay();
   const [reportOpen, setReportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   if (!s.started) return <Welcome onStart={start} />;
@@ -282,7 +282,7 @@ export default function Home() {
       {resting ? (
         <WatchingHero services={s.services} />
       ) : (
-        <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 lg:grid-cols-12 lg:overflow-visible lg:p-6">
+        <div className="page-x grid min-h-0 flex-1 gap-5 overflow-y-auto py-5 lg:grid-cols-12 lg:overflow-visible lg:py-6">
           <div className="flex flex-col gap-5 lg:col-span-4 lg:min-h-0">
             <Panel title="Services">
               <Strips services={s.services} />
@@ -303,7 +303,7 @@ export default function Home() {
             )}
             {liveAgentRequest && <LiveAgentRequest req={liveAgentRequest} />}
             <RatingPanel s={s} onRate={setRating} />
-            <Panel title="Activity" aside={<Speaking s={s} />} className="lg:min-h-0 lg:flex-1">
+            <Panel title="Activity" aside={<span className="flex items-center gap-4"><TalkButton s={s} onPtt={setPtt} onHold={hold} /><Speaking s={s} /></span>} className="lg:min-h-0 lg:flex-1">
               <div className="flex h-full flex-col">
                 <div className="px-4 pb-1">
                   <Waveform levels={levels} />

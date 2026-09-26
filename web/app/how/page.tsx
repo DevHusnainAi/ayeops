@@ -16,6 +16,7 @@ const RULES = [
   ["A restart on a bad deploy is refused", "It would crash-loop again. The relay cites the commit that broke it and proposes the rollback."],
   ["A rollback with nothing to undo is refused", "Nothing was deployed, so it would change nothing. The relay proposes a restart."],
   ["A restart on a backlog is refused", "The queue would refill at once. The relay proposes scaling out."],
+  ["The agent cannot announce an outcome", "If it claims a success no authorized change has earned, the relay corrects it out loud and counts it. Outcomes are the relay's to report."],
   ["Logs and supplied text are data", "A line that claims the operator approved something is flagged and ignored. Approval only ever comes from the operator's voice."],
   ["One code, one execution", "Codes are random, single-use and expire after two minutes. Re-reading a spent or expired code runs nothing, and every new proposal gets a new code."],
 ];

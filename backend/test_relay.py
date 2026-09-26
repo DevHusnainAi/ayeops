@@ -97,7 +97,7 @@ async def incident_flow():
     # F1 readback: the code alone doesn't execute. It proves nothing except that the operator can read a screen.
     await ev(type="transcript.user", text=f"{code.title()}.")
     assert s.pending and not s.executing
-    assert any("say the action" in x for x in s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")])
+    assert any("say the action" in x.lower() for x in s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")])
     # Veto cancels, even with a pending code.
     await ev(type="transcript.user", text="No, wait.")
     assert s.pending is None
@@ -386,7 +386,7 @@ async def nudge_dedup():
     s.up.sent.clear()
     s.pending["said"] = ""  # a fresh readback attempt, not a continuation of the last one
     await ev(type="transcript.user", text=f"{s.pending['code'].title()}.")
-    assert any("say the action" in x for x in s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")])
+    assert any("say the action" in x.lower() for x in s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")])
 
 
 async def agent_request_gate():
@@ -879,6 +879,44 @@ async def visitors_agent_reaches_only_their_dashboard():
             relay.SESSION_TOKENS.pop(s.agent_token, None)
 
 
+async def agent_cannot_claim_a_success_that_did_not_happen():
+    """Seen live: the operator read only the code, the relay rightly ran nothing, and the model announced "the
+    rollback was successful" anyway. The relay corrects it out loud and counts it; after a real, authorized
+    change the same words are true and are left alone."""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    before = relay.CHALLENGE["blocked"]
+    await ev(type="transcript.agent", text="The rollback for auth service was successful.")
+    kinds = [e["kind"] for e in sent(s.ws, "relay.attempt")]
+    assert kinds == ["claimed an outcome that never happened"] and relay.CHALLENGE["blocked"] == before + 1, kinds
+    said = s.say_queue + [m["instructions"] for m in sent(s.up, "reply.create")]
+    fix = [x for x in said if "Correction: nothing has been changed yet" in x]
+    assert fix and "say the action, the service and the code together" in fix[-1], said
+    # An ordinary sentence in triage is not a claim.
+    await ev(type="transcript.agent", text="auth-service has restarted several times since the deploy.")
+    assert len(sent(s.ws, "relay.attempt")) == 1
+    # Once a change really ran, announcing its success is the relay's own report and must not be flagged.
+    await authorize(s, ev, poll, "Roll back auth-service")
+    await ev(type="transcript.agent", text="The rollback of auth service was successful.")
+    assert len(sent(s.ws, "relay.attempt")) == 1, "a true outcome must not be flagged"
+
+
+async def agent_echo_is_not_the_operator():
+    """Seen live: with speakers and no headphones the microphone hears the agent, and its own words came back as
+    'operator' turns. They must not count towards a readback, the dashboard is told once, and a real readback (which
+    carries the code words the agent never says) still works."""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+    await ev(type="transcript.agent", text="I propose rolling back the auth service, which also affects the api gateway and the billing worker.")
+    await ev(type="transcript.user", text="Affects the API gateway and the billing-worker.")
+    await ev(type="transcript.user", text="Please read back the action.")  # not all agent words: a real utterance
+    assert len(sent(s.ws, "relay.echo")) == 1, "the dashboard is told once, and only about the echo"
+    assert not any(t == "operator" and "gateway" in text for _, t, text in s.timeline), "echo is not operator speech"
+    await authorize(s, ev, poll, "Roll back auth-service")
+    assert s.phase == "resolved", "a real readback still works after echo"
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1108,6 +1146,8 @@ if __name__ == "__main__":
     asyncio.run(code_alone_and_spent_code_do_nothing())
     asyncio.run(expired_code_authorizes_nothing())
     asyncio.run(visitors_agent_reaches_only_their_dashboard())
+    asyncio.run(agent_cannot_claim_a_success_that_did_not_happen())
+    asyncio.run(agent_echo_is_not_the_operator())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())

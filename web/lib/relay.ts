@@ -116,6 +116,7 @@ export type RelayState = {
   agentSpeaking: boolean;
   operatorSpeaking: boolean;
   rating?: "up" | "down" | null; // post-execution rating
+  ptt: boolean; // hold-to-talk: the mic is heard only while a key or button is held (speakers, no headphones)
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,11 +125,12 @@ type Action =
   | { kind: "start"; mic: RelayState["mic"] }
   | { kind: "link"; link: LinkState }
   | { kind: "event"; ev: Ev; at: number }
-  | { kind: "rating"; rating: "up" | "down" };
+  | { kind: "rating"; rating: "up" | "down" }
+  | { kind: "ptt"; on: boolean };
 
 const initial: RelayState = {
   started: false, link: "idle", mic: "off", phase: "starting", services: {}, logs: [], feed: [], live: null,
-  gate: null, events: [], agentSpeaking: false, operatorSpeaking: false, sttChars: 0,
+  gate: null, events: [], agentSpeaking: false, operatorSpeaking: false, sttChars: 0, ptt: false,
 };
 
 const TOOL: Record<string, string> = {
@@ -165,6 +167,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
   if (a.kind === "start") return { ...s, started: true, mic: a.mic, link: "connecting" };
   if (a.kind === "link") return { ...s, link: a.link };
   if (a.kind === "rating") return { ...s, rating: a.rating };
+  if (a.kind === "ptt") return { ...s, ptt: a.on };
   const { ev, at } = a;
   const t: string = ev.type;
   const api = (dir: "in" | "out", type: string, detail = "") =>
@@ -269,6 +272,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
     }
     case "relay.connect":
       return { ...s, agentToken: ev.agent_token };
+    case "relay.echo":
+      return { ...s, feed: feed({ kind: "link", text: "The microphone is hearing the agent's voice through your speakers. Hold Space, or the Talk button, to speak — or use headphones.", tone: "warn" }) };
     case "relay.notice":
       return { ...s, feed: feed({ kind: "link", text: ev.message, tone: "warn" }) };
     case "relay.error":
@@ -328,6 +333,8 @@ type Audio = {
   sources: Set<AudioBufferSourceNode>;
   playhead: number;
   micLevel: number;
+  ptt?: boolean; // mirrors state.ptt for the audio callback
+  talkUntil?: number; // performance.now() until which mic frames still go out after a release
   wave?: Float32Array<ArrayBuffer>;
   opened: boolean; // F10e: did the WS ever actually open -- distinguishes "never reached the relay" from a drop
 };
@@ -398,6 +405,8 @@ export function useRelay() {
         node.connect(ctx.destination); // the processor writes no output; connecting just keeps it running
         node.port.onmessage = (e: MessageEvent<{ pcm: ArrayBuffer; level: number }>) => {
           r.micLevel = e.data.level;
+          // Hold-to-talk: only while held, plus a beat after release so the server's turn detection sees the pause.
+          if (r.ptt && performance.now() > (r.talkUntil ?? 0)) return;
           if (r.ws?.readyState === WebSocket.OPEN) r.ws.send(e.data.pcm);
         };
         mic = "on";
@@ -438,6 +447,8 @@ export function useRelay() {
     ws.onmessage = (m) => {
       const ev = JSON.parse(m.data);
       if (ev.type === "reply.audio" || ev.type === "autopilot.audio") return play(ev.data);
+      // The relay saw the agent's own voice come back through the microphone: switch to hold-to-talk.
+      if (ev.type === "relay.echo") { r.ptt = true; dispatch({ kind: "ptt", on: true }); }
       if (ev.type === "input.speech.started" || (ev.type === "reply.done" && ev.status === "interrupted")) flush();
       dispatch({ kind: "event", ev, at: Date.now() });
     };
@@ -490,6 +501,12 @@ export function useRelay() {
     state,
     start,
     levels,
+    setPtt: (on: boolean) => { a.current.ptt = on; a.current.talkUntil = 0; dispatch({ kind: "ptt", on }); },
+    // Holding the talk key/button: the mic goes live, and the agent is cut off at once (barge-in).
+    hold: (down: boolean) => {
+      const r = a.current;
+      if (down) { r.talkUntil = Number.MAX_SAFE_INTEGER; flush(); } else { r.talkUntil = performance.now() + 900; }
+    },
     injectFault: (fault: Fault) => control("demo.fault", { fault }),
     cutLink: () => control("demo.drop"),
     injectPrompt: (text?: string) => control("demo.inject", { text }),
