@@ -1036,7 +1036,7 @@ export function ModelContextCard({ ctx, codeWords }: { ctx: ModelContext | null 
   if (!ctx) return null;
   const lines = JSON.stringify(ctx.payload, null, 2).split("\n");
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-line bg-panel">
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-line bg-panel">
       <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
         <EyeOff aria-hidden size={13} className="text-muted-2" />
         <span className="text-[11px] font-semibold tracking-wide text-muted uppercase">Model context</span>
@@ -1048,7 +1048,12 @@ export function ModelContextCard({ ctx, codeWords }: { ctx: ModelContext | null 
         <p className="mb-2 font-mono text-[10.5px] tracking-wide text-muted-2 uppercase">authorization code</p>
         <div className="flex items-center gap-2" aria-label={`${codeWords} words withheld from the model`}>
           {Array.from({ length: codeWords }).map((_, i) => (
-            <span key={i} className="h-[3.25rem] flex-1 rounded-md bg-line/80 ring-1 ring-line" />
+            <span
+              key={i}
+              className="flex h-[3.25rem] flex-1 items-center justify-center rounded-md bg-[repeating-linear-gradient(135deg,var(--color-line)_0_6px,transparent_6px_12px)] font-mono text-[10.5px] tracking-[0.25em] text-muted uppercase ring-1 ring-line-strong"
+            >
+              withheld
+            </span>
           ))}
         </div>
         <p className="mt-2.5 text-[12px] text-muted">
@@ -1056,7 +1061,7 @@ export function ModelContextCard({ ctx, codeWords }: { ctx: ModelContext | null 
         </p>
       </div>
 
-      <pre className="max-h-72 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-relaxed text-muted">
+      <pre className="min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-relaxed text-muted">
         {lines.map((l, i) => (
           <div key={i} className="break-words whitespace-pre-wrap">{l}</div>
         ))}
