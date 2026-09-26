@@ -233,8 +233,10 @@ def _build_tools_for(svc):
 
 
 def heard(text, phrases):
-    norm = f" {text.lower().replace('-', ' ')} "
-    return any(f" {p} " in norm for p in phrases)
+    # Punctuation is not part of what was said: "Roll back. Auth-service lima kilo." contains "roll back" and
+    # "auth service". (Matching on spaces alone rejected a correct readback because a period followed "back".)
+    norm = f" {' '.join(re.findall(r'[a-z0-9]+', text.lower()))} "
+    return any(f" {' '.join(re.findall(r'[a-z0-9]+', p.lower()))} " in norm for p in phrases)
 
 
 NUDGE_COOLDOWN_S = READBACK_MERGE_S  # one spoken nudge per readback attempt, not one per fragment of it (a single

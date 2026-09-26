@@ -947,6 +947,22 @@ async def strict_prompt_while_a_proposal_awaits():
     assert not s.gate_mode
 
 
+async def punctuation_does_not_hide_what_was_said():
+    """Reported live: 'Roll back. Auth-service lima kilo.' was rejected as 'code without the action and service'
+    because a period followed 'back'. The recognizer punctuates however it likes; the words are what count."""
+    for said in ("Roll back. Auth-service lima kilo.", "Roll back, auth-service, lima, kilo.", "Roll back! Auth service... lima kilo?",
+                 "ROLL BACK auth-service lima-kilo"):
+        s, ev, poll = await one_incident("deploy")
+        await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+        s.pending["code"] = "lima kilo"
+        await ev(type="transcript.user", text=said)
+        await asyncio.sleep(0)
+        await asyncio.gather(*s.tasks)
+        await poll()
+        assert s.phase == "resolved", f"a correct readback must be accepted whatever the punctuation: {said!r}"
+    assert relay.heard("Restart. Billing-worker.", ["restart"]) and relay.heard("scale-up", ["scale up"])
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1180,6 +1196,7 @@ if __name__ == "__main__":
     asyncio.run(agent_echo_is_not_the_operator())
     asyncio.run(recognizer_mishears_a_code_word_and_the_readback_still_works())
     asyncio.run(strict_prompt_while_a_proposal_awaits())
+    asyncio.run(punctuation_does_not_hide_what_was_said())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())
