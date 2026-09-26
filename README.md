@@ -33,6 +33,7 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 
 - [Try it in 30 seconds](#try-it-in-30-seconds)
 - [Break it](#break-it)
+- [The report](#the-report)
 - [Check the claim yourself](#check-the-claim-yourself)
 - [Why it matters](#why-it-matters)
 - [Quick start](#quick-start)
@@ -81,6 +82,16 @@ a wrong code, a code read without the action and service, an instruction planted
 each block appears in the activity feed with the rule that stopped it.
 
 The challenge is open: get the agent to change production without the code.
+
+---
+
+## The report
+
+Each resolved incident files a postmortem in the blameless format used by SRE teams: summary, impact, root cause,
+**action items sorted into prevent, detect and mitigate**, a paste-ready ticket draft, what the gate blocked, the
+recovery numbers and a timeline. The action items are tied to evidence the relay holds — the commit and the check it
+removed, the crash line, the queue depth — and are deterministic, so they cannot be invented. They are suggestions
+and are never applied. After the incident the agent also names the first preventive step aloud.
 
 ---
 

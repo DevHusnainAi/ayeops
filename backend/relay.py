@@ -400,6 +400,35 @@ FAULT_CAUSES = {
 }
 
 
+# Corrective actions for the report, tied to the evidence the relay actually holds. Deterministic on purpose: a
+# suggestion the model invents can be wrong, and this one is checked against the commit, the crash line and the
+# queue depth. They are suggested, never applied. (priority, category, action)
+def action_items(kind, service, evidence, error_line=None):
+    ev = evidence or {}
+    if kind == "wedge":
+        return [
+            ("P1", "prevent", f"Bound and time out the session-cache connection pool in {service}, and fix the leak that lets it reach 0 free"),
+            ("P2", "detect", "Alert when pool saturation stays above 90% for a minute; make the liveness probe exercise a verify call, not just the port"),
+            ("P2", "mitigate", "Restart automatically after three failed liveness probes, and keep the human-approved restart for anything riskier"),
+        ]
+    if kind == "spike":
+        return [
+            ("P1", "prevent", f"Autoscale {service} on queue depth: add workers when depth stays above 100 for 30 seconds"),
+            ("P2", "detect", "Alert on consumer lag above 5 seconds, before the backlog is a customer-visible delay"),
+            ("P2", "mitigate", "Shed or rate-limit load at the gateway during a surge, and keep spare worker capacity for known peaks"),
+        ]
+    cause = (f"the change in {ev['commit']} ({ev['message']})" if ev
+             else f"the fault behind `{error_line}`" if error_line else f"the last deploy of {service}")
+    fix = f"Fix {cause}" + (f", restoring the check it removed in {', '.join(ev['files'])}" if ev.get("files") else "") + \
+        ", and add a regression test that would have failed before it shipped"
+    return [
+        ("P1", "prevent", fix),
+        ("P1", "prevent", f"Gate deploys of {service} on a canary: promote only if the error rate stays under 1% for two minutes"),
+        ("P2", "detect", f"Alert on three or more restarts of {service} in five minutes, instead of waiting for dependents to fail"),
+        ("P2", "mitigate", "Make rollback one action in the deploy pipeline, and keep the previous version ready"),
+    ]
+
+
 def precedent_for(service, kind="deploy"):
     """The most recent past incident of this kind on this service, if any -- what open_incident() pages the operator
     with. Kind matters: a wedged process that a rollback "fixed" last time is not a precedent for a bad deploy, and
@@ -503,6 +532,7 @@ class Session:
         self.timeline = []  # (epoch, kind, text): the audit trail behind the postmortem
         self.last_change = None  # F10a: {service, action, evidence} from the most recent execute(), for memory
         self.scenario = None  # BYOI: custom {service, errorLine} from the browser, if any
+        self.attempts = []  # what the relay blocked in this session, for the report
         self.fault = "deploy"  # which incident demo.fault ships (one of FAULTS); the welcome page can preselect it
 
     def _services(self):
@@ -804,7 +834,10 @@ class Session:
         await self.send_up({"type": "session.update",
                             "session": {"system_prompt": self._system_prompt() + RESOLVED_PROMPT + self.timeline_text(),
                                         "tools": READ_TOOLS}})
-        await self.say("In one short sentence, tell the operator the postmortem with the voice authorization record is filed.")
+        first = action_items(self.cluster.fault_kind, (self.last_change or {}).get("service") or "the service",
+                             (self.last_change or {}).get("evidence"), (self.scenario or {}).get("errorLine"))[0][2]
+        await self.say("In two short sentences: tell the operator the postmortem with the voice authorization record "
+                       f"is filed, then name the first step to prevent a repeat: {first}.")
 
     def timeline_text(self):
         """The verified record the agent answers "what happened?" from. Authorization entries quote the operator's
@@ -821,6 +854,29 @@ class Session:
         rows = [f"| {hms(ts)} | {kind} | {text.replace('|', '/')} |" for ts, kind, text in self.timeline]
         recovery_rows = [f"| {s} | {pct(v['error_rate_before'])} → {pct(v['error_rate_after'])} | "
                           f"{v['p99_before']}ms → {v['p99_after']}ms |" for s, v in recovery.items()]
+        kind = self.cluster.fault_kind
+        change = self.last_change or {}
+        lead = change.get("service") or next(iter(self.incident_broken), "the service")
+        evidence = change.get("evidence") or {}
+        error_line = (self.scenario or {}).get("errorLine")
+        before = self.incident_before
+        impact = []
+        for s in self.incident_broken:
+            v = before.get(s, {})
+            extra = f", queue depth {v['queue_depth']}" if v.get("queue_depth") else ""
+            impact.append(f"- `{s}` {v.get('status', 'unhealthy')}: {pct(v.get('error_rate', 0.0))} errors, "
+                          f"p99 {v.get('p99_ms', 0)} ms{extra}")
+        trigger = (f"`{evidence['commit']}` — {evidence['message']}" if evidence
+                   else error_line or FAULT_CAUSES.get(kind) or f"the last deploy of {lead}")
+        items = action_items(kind, lead, evidence, error_line)
+        item_rows = [f"| {p} | {cat} | {text} |" for p, cat, text in items]
+        action = change.get("action", "fix").replace("_", " ")
+        blocked = [f"- **{k}** — {rule}: “{detail}”" for k, detail, rule in self.attempts] or \
+            ["- Nothing was blocked in this session."]
+        ticket = [f"**{lead}: {(evidence.get('message') if evidence else None) or FAULT_CAUSES.get(kind) or 'incident'}**", "",
+                  f"Detected {hms(self.incident_at)}, recovered {hms(time.time())} ({mttr} s) by a voice-authorized "
+                  f"{action}. Evidence: AssemblyAI session(s) {', '.join(self.session_ids)}.", "",
+                  *(f"- [ ] ({p}, {cat}) {text}" for p, cat, text in items)]
         return "\n".join([
             f"# Incident report {self.session_id}", "",
             f"- **Detected** {hms(self.incident_at)}, **recovered** {hms(time.time())}, **time to recover** {mttr} s",
@@ -828,6 +884,19 @@ class Session:
             f"- **Evidence:** AssemblyAI session(s) {', '.join(f'`{s}`' for s in self.session_ids)}; each two-channel "
             "recording (operator left, agent right) and turn timeline is saved next to this file.",
             "",
+            "## Summary", "",
+            f"{lead} failed and {len(self.incident_broken)} service(s) were affected for {mttr} s. A human authorized "
+            f"the {action} by reading back a one-time code the model never saw; the relay checked the readback and "
+            "ran exactly that change.", "",
+            "## Impact", "", *impact, "",
+            "## Root cause", "", f"Trigger: {trigger}", "",
+            "## Action items (suggested, not applied)", "",
+            "| priority | type | action |", "|---|---|---|", *item_rows, "",
+            "## Draft ticket", "", "```markdown", *ticket, "```", "",
+            "## What the gate did", "", *blocked, "",
+            "*Approval evidence for change management: who authorized what, when, and how, recorded by a party the "
+            "operator does not control. It maps onto the authorization and audit-trail expectations of change-control "
+            "frameworks such as SOC 2; it is not itself a certification.*", "",
             *(["## Recovery", "", "| service | error rate | p99 |", "|---|---|---|", *recovery_rows, ""]
               if recovery_rows else []),
             "## Timeline", "", "| time | event | detail |", "|---|---|---|", *rows, ""])
@@ -1085,6 +1154,7 @@ class Session:
     async def blocked(self, kind, detail, rule):
         """One thing the relay stopped: counted for the public scoreboard and shown on this session's attack log."""
         bump("blocked")
+        self.attempts.append((kind, " ".join(detail.split())[:160], rule))
         await self.emit({"type": "relay.attempt", "kind": kind, "detail": " ".join(detail.split())[:160], "rule": rule})
 
     async def refuse(self, service, requested, proposed, reason, error, evidence=None):

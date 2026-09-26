@@ -774,6 +774,35 @@ async def authorize(s, ev, poll, spoken):
 
 
 
+async def report_names_cause_and_prevention():
+    """Each kind of incident ends in a report with an evidence-backed root cause and preventive action items that fit
+    that kind -- not the same boilerplate -- plus impact, a paste-ready ticket, and what the gate blocked."""
+    cases = [("deploy", AUTH_ROLLBACK, "Roll back auth-service", "e4f5061", "canary", "regression test"),
+             ("wedge", {"service": "auth-service", "action": "restart"}, "Restart auth-service", "connection pool", "liveness", "connection pool"),
+             ("spike", {"service": "billing-worker", "action": "scale_up"}, "Scale up billing-worker", "traffic spike", "Autoscale", "Autoscale")]
+    for kind, fix, spoken, cause, prevent, first in cases:
+        s, ev, poll = await one_incident(kind)
+        s.cluster.on_log = s.on_log
+        if kind == "spike":
+            s.cluster.queue_depth = 400
+        await s.run_tool("propose_remediation", fix)
+        await authorize(s, ev, poll, spoken)
+        md = sent(s.ws, "relay.postmortem")[-1]["markdown"]
+        for heading in ("## Summary", "## Impact", "## Root cause", "## Action items", "## Draft ticket", "## What the gate did"):
+            assert heading in md, (kind, heading)
+        assert cause in md and prevent in md, (kind, md)
+        assert "- [ ] (P1, prevent)" in md, "the ticket draft carries the action items as a checklist"
+        for _ in range(10):  # flush_say() sends one queued line per reply cycle
+            if not s.say_queue:
+                break
+            await ev(type="reply.started")
+            await ev(type="reply.done", status="completed")
+        wrap_up = [m["instructions"] for m in sent(s.up, "reply.create") if "prevent a repeat" in m["instructions"]]
+        assert wrap_up and first.lower() in wrap_up[-1].lower(), (kind, wrap_up)
+        if kind == "deploy":
+            assert "restoring the check it removed in token/verify.go" in md, md
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -999,6 +1028,7 @@ if __name__ == "__main__":
     asyncio.run(incident_flow())
     asyncio.run(refusal_and_recovery_deltas())
     asyncio.run(result_ignores_cascading_dependents())
+    asyncio.run(report_names_cause_and_prevention())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())
