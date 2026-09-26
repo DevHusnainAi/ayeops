@@ -118,7 +118,7 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
             "radial-gradient(46rem 30rem at 8% 92%, color-mix(in oklab, var(--color-remediating) 8%, transparent), transparent 55%)",
         }}
       />
-      <div className="relative mx-auto flex min-h-dvh max-w-7xl flex-col px-6 py-8 lg:px-10">
+      <div className="relative mx-auto flex min-h-dvh w-full flex-col px-6 py-8 lg:px-10">
         <header className="flex items-center justify-between gap-4">
           <span className="font-mono text-[15px] font-semibold tracking-[0.02em] uppercase">
             {BRAND}<span className="text-accent">.</span>
