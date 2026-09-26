@@ -822,6 +822,63 @@ async def code_alone_and_spent_code_do_nothing():
     assert relay.CHALLENGE["executed"] == before + 1 and s.pending is None, "a spent code must not run anything again"
 
 
+async def expired_code_authorizes_nothing():
+    """The dashboard counts the code down and calls it expired, so the relay has to agree: a correct readback of a
+    code past its time runs nothing, and the next proposal gets a fresh code."""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    old = s.pending["code"]
+    s.pending["at"] -= relay.GATE_TTL_S + 1
+    before = relay.CHALLENGE["executed"]
+    await ev(type="transcript.user", text=f"Roll back auth-service, {old.title()}.")
+    await asyncio.sleep(0)
+    assert s.pending is None and relay.CHALLENGE["executed"] == before, "an expired code must not run anything"
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    assert s.pending["at"] > time.monotonic() - 5
+
+
+async def visitors_agent_reaches_only_their_dashboard():
+    """A visitor's own agent, with the token their dashboard shows, asks for a human's voice on a dangerous command:
+    only that visitor's session is asked, the readback decides, a wrong token is refused, and the count is capped."""
+    mine, ev = session()
+    other, _ = session()
+    for s in (mine, other):
+        relay.ACTIVE_SESSIONS.add(s)
+        relay.SESSION_TOKENS[s.agent_token] = s
+    try:
+        class Req:
+            def __init__(self, token):
+                self.headers = {"authorization": f"Bearer {token}"}
+
+            async def json(self):
+                return {"agent": "my-agent", "action": "delete", "target": "prod-db", "command": "DROP DATABASE prod",
+                        "reason": "cleanup"}
+
+        call = asyncio.create_task(relay.agent_requests(Req(mine.agent_token)))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        asked = [e for e in mine.ws.sent if e["type"] == "relay.agent_request"]
+        assert asked and not [e for e in other.ws.sent if e["type"] == "relay.agent_request"], "only the token's own session is asked"
+        await mine.on_agent_request_transcript(f"Yes, {asked[0]['code'].title()}.")
+        assert await call == {"decision": "approved"}
+
+        try:
+            await relay.agent_requests(Req("not-a-token"))
+            assert False, "a wrong token must be refused"
+        except relay.HTTPException as e:
+            assert e.status_code == 403
+        mine.agent_requests_made = relay.SESSION_AGENT_REQUESTS
+        try:
+            await relay.agent_requests(Req(mine.agent_token))
+            assert False, "the per-session cap must hold"
+        except relay.HTTPException as e:
+            assert e.status_code == 429
+    finally:
+        for s in (mine, other):
+            relay.ACTIVE_SESSIONS.discard(s)
+            relay.SESSION_TOKENS.pop(s.agent_token, None)
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1049,6 +1106,8 @@ if __name__ == "__main__":
     asyncio.run(result_ignores_cascading_dependents())
     asyncio.run(report_names_cause_and_prevention())
     asyncio.run(code_alone_and_spent_code_do_nothing())
+    asyncio.run(expired_code_authorizes_nothing())
+    asyncio.run(visitors_agent_reaches_only_their_dashboard())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())

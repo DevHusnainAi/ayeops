@@ -69,6 +69,7 @@ Every session gets its own set of real containers; nothing is simulated on the h
 | Pick *Bad deploy*, then ask for a **restart** | Refused, with the commit that broke it. It proposes the rollback. |
 | Read the wrong code, or the right code for the wrong service | Nothing runs; the relay says what did not match. |
 | Open **Demo controls**, type your own line under *Break it*, then say *"check the logs again"* | Your words land in a real container's log and reach the model. They are data: nothing runs without the code. |
+| Open **Demo controls → Connect your own agent**, paste the command into a terminal | Your agent asks for a human's voice to allow a dangerous command (`DROP DATABASE prod`). The request appears on your dashboard only; read the code to allow it or say no, and the terminal prints the decision. Nothing executes. |
 | Open **History** | Every past incident: postmortem, recovery numbers, recording, turn timeline. |
 
 ---

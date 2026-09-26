@@ -4,7 +4,7 @@ import { type ReactNode, type RefObject, useEffect, useRef, useState } from "rea
 import {
   Boxes,
   EyeOff,
-  Activity, AlertTriangle, BarChart3, Bot, Bug, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, Globe, History, Lock, Mic,
+  Activity, AlertTriangle, BarChart3, Bot, Bug, Check, CheckCircle2, ChevronDown, ChevronUp, Clock3, FileText, Globe, History, Lock, Mic,
   MicOff, Radio, RefreshCw, Rocket, Server, ScrollText, ShieldCheck, SlidersHorizontal, Unplug, Wifi, WifiOff, X, XCircle,
 } from "lucide-react";
 import { BRAND } from "@/lib/brand";
@@ -299,17 +299,30 @@ export function IncidentBar({ s }: { s: RelayState }) {
 
 // Demo & testing controls: a floating panel that drops down from the header trigger, never a banner competing
 // with the product for space. Styled like an internal dev tool, not a feature.
+// What a visitor's own agent sends: a dangerous command it wants a human's voice to allow. The token works for this
+// session only.
+function agentCurl(token: string) {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return `curl -s -X POST ${origin}/api/agent-requests \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"agent":"my-coding-agent","action":"delete",
+       "target":"prod-db","command":"DROP DATABASE prod",
+       "reason":"cleaning up old tables"}'`;
+}
+
 export function DemoControls({
   s, open, onClose, onFault, onCut, onInject,
 }: { s: RelayState; open: boolean; onClose: () => void; onFault: (f: Fault) => void; onCut: () => void; onInject: (text?: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const [planted, setPlanted] = useState("");
+  const [copied, setCopied] = useState(false);
   useDismiss(open, onClose, ref);
   if (!open) return null;
   const live = s.link === "connected" || s.link === "resumed" || s.link === "recovered";
   const active = s.phase === "triage" || s.phase === "mitigation";
   return (
-    <div ref={ref} className="animate-rise absolute top-14 right-5 z-20 w-72 rounded-lg border border-line-strong bg-panel-2 p-3 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)]">
+    <div ref={ref} className="animate-rise absolute top-14 right-5 z-20 max-h-[80vh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-line-strong bg-panel-2 p-3 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.65)]">
       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-degraded uppercase">
         <Bug aria-hidden size={12} /> Demo &amp; testing controls
       </p>
@@ -344,6 +357,22 @@ export function DemoControls({
           </div>
           <p className="mt-1.5 text-[11.5px] leading-snug text-muted-2">Then tell the agent: &ldquo;check the logs again.&rdquo;</p>
         </form>
+        {s.agentToken && (
+          <div className="mt-1 border-t border-line pt-2">
+            <p className="mb-1 text-[11.5px] text-muted">Connect your own agent: it asks, you decide by voice</p>
+            <pre className="overflow-x-auto rounded-md bg-panel p-2 font-mono text-[10.5px] leading-snug whitespace-pre text-muted">{agentCurl(s.agentToken)}</pre>
+            <button
+              type="button"
+              className={`${BTN_QUIET} mt-1.5 w-full`}
+              onClick={() => { navigator.clipboard?.writeText(agentCurl(s.agentToken!)).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
+            >
+              {copied ? "Copied" : "Copy command"}
+            </button>
+            <p className="mt-1.5 text-[11.5px] leading-snug text-muted-2">
+              Run it in a terminal. It waits up to two minutes for you: read the code shown here to allow it, or say no. Nothing executes; it only returns the decision.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -604,6 +633,31 @@ export function PrecedentCard({ precedent }: { precedent: Precedent }) {
 
 // The signature moment, always docked at the top of the command column -- never inside a scrolling feed, never
 // behind navigation. This is what the whole product is for; it doesn't get to be optional to find.
+// The readback as the relay is scoring it, live: each thing that has to be said, and whether it was heard.
+function ReadbackChecks({ gate }: { gate: Gate }) {
+  const c = gate.confidence;
+  if (!c || !gate.heard) return null;
+  const said = gate.heard;
+  const rows: [string, boolean][] = [
+    ...(gate.code ?? "").split(" ").map((w): [string, boolean] => [`Code word ${w.toUpperCase()}`, new RegExp(`\\b${w}\\b`, "i").test(said)]),
+    ["Action", c.action_found],
+    ["Service", c.service_found],
+  ];
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Readback checks</p>
+      <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[12.5px]">
+        {rows.map(([label, ok]) => (
+          <li key={label} className={`flex items-center gap-1.5 ${ok ? "text-healthy" : "text-muted"}`}>
+            {ok ? <Check aria-hidden size={13} /> : <X aria-hidden size={13} />} {label}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 truncate font-mono text-[11.5px] text-muted-2">Heard: &ldquo;{said}&rdquo;</p>
+    </div>
+  );
+}
+
 export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"] }) {
   const now = useNow(200);
   const [expanded, setExpanded] = useState(true); // F10d: root cause is default-visible, not a footnote
@@ -642,6 +696,7 @@ export function LiveClearance({ gate, mic }: { gate: Gate; mic: RelayState["mic"
           </div>
         </>
       )}
+      {awaiting && !expired && <ReadbackChecks gate={gate} />}
       {gate.evidence && (
         <div className="mt-4 border-t border-line pt-3">
           <button type="button" onClick={() => setExpanded((e) => !e)} className="flex w-full items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted uppercase hover:text-ink">

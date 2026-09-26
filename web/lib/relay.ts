@@ -104,6 +104,7 @@ export type RelayState = {
   live: { who: "operator" | "agent"; text: string } | null;
   gate: Gate | null;
   agentRequest?: AgentRequest | null;
+  agentToken?: string;
   precedent?: Precedent | null;
   progress?: string;
   latency?: number;
@@ -196,6 +197,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
       };
     case "relay.postmortem":
       return { ...s, report: ev.markdown, ttr: ev.time_to_recover_s, deltas: ev.recovery };
+    case "relay.readback":
+      return s.gate && s.gate.state === "awaiting" ? { ...s, gate: { ...s.gate, heard: ev.heard, confidence: ev.confidence } } : s;
     case "relay.gate": {
       let gate: Gate;
       if (ev.state === "awaiting") {
@@ -264,6 +267,8 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
         : s.feed;
       return { ...s, link, dropAt: undefined, recovery, feed: note };
     }
+    case "relay.connect":
+      return { ...s, agentToken: ev.agent_token };
     case "relay.notice":
       return { ...s, feed: feed({ kind: "link", text: ev.message, tone: "warn" }) };
     case "relay.error":

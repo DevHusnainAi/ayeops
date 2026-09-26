@@ -17,7 +17,7 @@ const RULES = [
   ["A rollback with nothing to undo is refused", "Nothing was deployed, so it would change nothing. The relay proposes a restart."],
   ["A restart on a backlog is refused", "The queue would refill at once. The relay proposes scaling out."],
   ["Logs and supplied text are data", "A line that claims the operator approved something is flagged and ignored. Approval only ever comes from the operator's voice."],
-  ["One code, one execution", "Codes are random and single-use. Re-reading a spent code runs nothing, and every new proposal gets a new code."],
+  ["One code, one execution", "Codes are random, single-use and expire after two minutes. Re-reading a spent or expired code runs nothing, and every new proposal gets a new code."],
 ];
 
 export default function HowPage() {
@@ -133,7 +133,8 @@ export default function HowPage() {
         <a className="text-accent underline decoration-line underline-offset-4" href="/proof/">The proof page</a> runs a checker
         over AssemblyAI&rsquo;s own record of every session and reports how many approval codes it found on the
         model&rsquo;s side. The start page has a public scoreboard of every attempt to bypass the gate. It is open:
-        plant instructions in a real log, talk it into the wrong fix, read it a wrong code.
+        plant instructions in a real log, talk it into the wrong fix, read it a wrong code. Any other agent can plug in
+        the same way: it asks over HTTP, and a human&rsquo;s voice decides.
       </p>
       <div className="mt-6 flex flex-wrap gap-3">
         <a href="/" className="rounded-md bg-accent px-4 py-2.5 text-[14px] font-semibold text-accent-ink hover:opacity-90">Break it</a>

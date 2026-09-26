@@ -451,6 +451,8 @@ def silence_ms(ms):
 
 BACKGROUND = set()  # evidence downloads outlive their session
 ACTIVE_SESSIONS = set()  # F4: so POST /api/agent-requests can reach whichever dashboard is open
+SESSION_TOKENS = {}  # per-session bearer tokens: a visitor's own agent reaches only that visitor's dashboard
+SESSION_AGENT_REQUESTS = 5  # requests one session's token may make; each one holds a connection open for up to 120 s
 
 
 def hms(ts):
@@ -534,6 +536,8 @@ class Session:
         self.last_change = None  # F10a: {service, action, evidence} from the most recent execute(), for memory
         self.scenario = None  # BYOI: custom {service, errorLine} from the browser, if any
         self.attempts = []  # what the relay blocked in this session, for the report
+        self.agent_token = secrets.token_urlsafe(12)  # shown on this dashboard only; see POST /api/agent-requests
+        self.agent_requests_made = 0
         self.fault = "deploy"  # which incident demo.fault ships (one of FAULTS); the welcome page can preselect it
 
     def _services(self):
@@ -1260,6 +1264,11 @@ class Session:
         p = self.pending
         if not p:
             return
+        if time.monotonic() - p["at"] > GATE_TTL_S:  # the dashboard counts this down, so it has to be true
+            self.pending = None
+            self.mark("gate", "code expired before it was read back")
+            await self.say("Tell the operator in one short sentence that the code expired, and propose the fix again.")
+            return
         if VETO.search(text):
             self.pending, self.nudges = None, MAX_NUDGES  # the operator is steering now
             self.mark("gate", f'rejected by the operator: "{text}"')
@@ -1284,6 +1293,7 @@ class Session:
             list(service_phrases(p["service"])),
         )
         p["confidence"] = scoring  # store for dashboard display
+        await self.emit({"type": "relay.readback", "heard": p["said"], "confidence": scoring})  # the live checklist
 
         words = set(re.findall(r"[a-z]+", p["said"].lower()))
         if own_code - words:  # not all of the real code's words are in yet
@@ -1395,6 +1405,8 @@ class Session:
 
     async def run(self):
         ACTIVE_SESSIONS.add(self)
+        SESSION_TOKENS[self.agent_token] = self
+        await self.emit({"type": "relay.connect", "agent_token": self.agent_token})
         tasks = [asyncio.create_task(c) for c in
                  (self.pump_browser(), self.pump_upstream(), self.run_cluster())]
         try:
@@ -1409,6 +1421,7 @@ class Session:
                 await self.emit({"type": "relay.error", "message": repr(e)})
         finally:
             ACTIVE_SESSIONS.discard(self)
+            SESSION_TOKENS.pop(self.agent_token, None)
             if self.up and not self.ended:  # skip the billable 30 s resume grace
                 with contextlib.suppress(Exception):
                     await self.up.send(json.dumps({"type": "session.end"}))
@@ -1435,14 +1448,15 @@ async def settle_agent_request(req, state):
             await s.emit({"type": "relay.agent_request", "state": state})
 
 
-async def route_agent_request(fields):
+async def route_agent_request(fields, only=None):
     """F4: gate an external agent's request through the same Blind Clearance mechanism as a rollback -- a
     one-time code the model never sees, decided by the operator's voice, never the agent's own claim."""
-    if not ACTIVE_SESSIONS:
+    watching = [only] if only else list(ACTIVE_SESSIONS)  # a session's own token reaches only that session
+    if not watching or (only and only not in ACTIVE_SESSIONS):
         return "expired"  # nobody is watching to ask
     code = " ".join(secrets.SystemRandom().sample(CODE_WORDS, 2))
     req = {**fields, "code": code, "future": asyncio.get_running_loop().create_future()}
-    for s in list(ACTIVE_SESSIONS):
+    for s in watching:
         s.spawn(s.open_agent_request(req))
     try:
         return await asyncio.wait_for(req["future"], timeout=AGENT_REQUEST_TIMEOUT_S)
@@ -1471,13 +1485,19 @@ async def ws_endpoint(ws: WebSocket):
 async def agent_requests(request: Request):
     """F4: any external coding agent -- not just this one -- can ask AyeOps to gate a production action through
     the operator's voice. Answers the Replit case: instructions aren't enforcement, but this is."""
-    if not AGENT_TOKEN or request.headers.get("authorization") != f"Bearer {AGENT_TOKEN}":
+    bearer = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    session = SESSION_TOKENS.get(bearer)
+    if not session and not (AGENT_TOKEN and bearer == AGENT_TOKEN):
         raise HTTPException(403, "invalid or missing agent token")
+    if session:
+        session.agent_requests_made += 1
+        if session.agent_requests_made > SESSION_AGENT_REQUESTS:
+            raise HTTPException(429, "this session's agent-request limit is used up")
     body = await request.json()
     fields = {k: str(body.get(k, "")).strip()[:300] for k in ("agent", "action", "target", "command", "reason")}
     if not all(fields.values()):
         raise HTTPException(400, "agent, action, target, command and reason are all required")
-    return {"decision": await route_agent_request(fields)}
+    return {"decision": await route_agent_request(fields, session)}
 
 
 @app.get("/api/incidents")
