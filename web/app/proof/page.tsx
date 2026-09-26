@@ -63,7 +63,9 @@ export default function ProofPage() {
 uv run prove_blind.py --selftest   # the checker fails on a planted leak, passes a clean session
 uv run prove_blind.py incidents/   # run it on any recorded sessions`}</pre>
       <p className="mt-4 max-w-3xl text-[13.5px] leading-relaxed text-muted">
-        The one place a code may appear is the operator&rsquo;s own readback turn, after the operator said it. The
+        The speech recognizer&rsquo;s vocabulary names all sixteen possible code words, so that spoken codes
+        transcribe; that list is the pool a code is drawn from, not an issued code, and the checker excludes it.
+        The one place an issued code may appear is the operator&rsquo;s own readback turn, after the operator said it. The
         operator&rsquo;s speech reaches the model as a transcript, as it must. What the model cannot do is see a code
         before a human speaks it, produce one, or approve on its own: the relay, not the model, checks the readback and
         runs the change.

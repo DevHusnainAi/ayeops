@@ -23,6 +23,16 @@ def has(text, code):
     return bool(re.search(pat, text or "", re.I))
 
 
+def issued_only(update):
+    """A config change without the recognizer's vocabulary lists. keyterms and transcription_prompt name all sixteen
+    possible code words (alphabetically) so that spoken codes transcribe; that is the pool a code is drawn from, not
+    an issued code, and two neighbours in the list ("golf, hotel") are not a leak. Everything else stays in scope."""
+    update = json.loads(json.dumps(update or {}))
+    for key in ("keyterms", "transcription_prompt"):
+        update.get("input", {}).pop(key, None)
+    return update
+
+
 def model_side(turn):
     """Everything in one turn that came from the relay or the model -- i.e. not the operator's own speech."""
     return {"reply instruction": turn.get("requested_instructions"), "agent speech": turn.get("agent_text"),
@@ -41,7 +51,7 @@ def check(evidence, codes):
                 if has(text, code):
                     leaks.append(f'"{code}" in {where}, turn {i}')
         for j, change in enumerate(evidence.get("config_changes", [])):
-            if has(json.dumps(change.get("update", {})), code):
+            if has(json.dumps(issued_only(change.get("update", {}))), code):
                 leaks.append(f'"{code}" in config change {j} (prompt / tools / keyterms)')
     return len(codes), heard_at, leaks
 
@@ -62,7 +72,12 @@ def selftest():
     clean = {"turns": [{"agent_text": "Please read back the code."}, {"user_transcript": "lima, papa"}], "config_changes": []}
     assert check(clean, ["lima papa"])[2] == [], "a clean session must pass"
     assert not has("lima and charlie", "lima papa"), "one shared word is not the code"
-    print("selftest ok: a code in the prompt or in agent speech is caught; a clean session passes")
+    vocab = {"turns": [], "config_changes": [{"update": {"input": {"keyterms": ["golf", "hotel", "kilo"],
+             "transcription_prompt": "code words (golf, hotel, kilo)"}}}]}
+    assert check(vocab, ["golf hotel"])[2] == [], "the recognizer's vocabulary list is not an issued code"
+    vocab["config_changes"][0]["update"]["system_prompt"] = "the code is golf hotel"
+    assert len(check(vocab, ["golf hotel"])[2]) == 1, "a code anywhere else in a config change is still a leak"
+    print("selftest ok: a code in the prompt or in agent speech is caught; a clean session passes; the vocabulary list is not a leak")
 
 
 def main():
