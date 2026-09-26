@@ -34,6 +34,7 @@ export type Gate = {
   code?: string;
   evidence?: Evidence | null;
   heard?: string;
+  matched?: string[]; // which code words the relay accepted from the readback so far
   expiresAt?: number;
   approvedAt?: number;
   result?: { status?: string };
@@ -201,7 +202,7 @@ function reduceUnsafe(s: RelayState, a: Action): RelayState {
     case "relay.postmortem":
       return { ...s, report: ev.markdown, ttr: ev.time_to_recover_s, deltas: ev.recovery };
     case "relay.readback":
-      return s.gate && s.gate.state === "awaiting" ? { ...s, gate: { ...s.gate, heard: ev.heard, confidence: ev.confidence } } : s;
+      return s.gate && s.gate.state === "awaiting" ? { ...s, gate: { ...s.gate, heard: ev.heard, confidence: ev.confidence, matched: ev.matched } } : s;
     case "relay.gate": {
       let gate: Gate;
       if (ev.state === "awaiting") {

@@ -917,6 +917,37 @@ async def agent_echo_is_not_the_operator():
     assert s.phase == "resolved", "a real readback still works after echo"
 
 
+async def recognizer_mishears_a_code_word_and_the_readback_still_works():
+    """Seen live: the operator said 'golf sierra' and the recognizer wrote 'golf Syria', twice."""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    s.pending["code"] = "golf sierra"
+    await ev(type="transcript.user", text="Roll back auth-service, golf Syria.")
+    await asyncio.sleep(0)
+    await asyncio.gather(*s.tasks)
+    await poll()
+    assert s.phase == "resolved", "an aliased code word must be accepted"
+    readback = sent(s.ws, "relay.readback")
+    assert readback and readback[-1]["matched"] == ["golf", "sierra"], readback
+
+
+async def strict_prompt_while_a_proposal_awaits():
+    """Seen live: the model re-explained the whole proposal after each fragment the operator said. From the moment
+    the proposal has been spoken until the gate closes, the model runs on a prompt that allows one word."""
+    s, ev, poll = await one_incident("deploy")
+    prompts = lambda: [m["session"]["system_prompt"] for m in sent(s.up, "session.update") if "system_prompt" in m["session"]]
+    before = len(prompts())
+    s.live_calls.add("c1")
+    await s.exec_tool({"call_id": "c1", "name": "propose_remediation", "arguments": AUTH_ROLLBACK})
+    assert len(prompts()) == before, "the proposal itself is spoken under the working prompt"
+    await ev(type="reply.started")
+    await ev(type="reply.done", status="completed")
+    assert prompts()[-1] == relay.GATE_PROMPT and s.gate_mode, "after the proposal, the strict prompt takes over"
+    await authorize(s, ev, poll, "Roll back auth-service")
+    assert relay.GATE_PROMPT not in prompts()[before + 1:], "the strict prompt must be gone once the gate closes"
+    assert not s.gate_mode
+
+
 async def break_it_scoreboard():
     """The public scoreboard counts what the relay really stopped, a visitor can plant their own words in a log, and
     "unauthorized" -- executed minus voice-authorized -- stays 0 through all of it."""
@@ -1148,6 +1179,8 @@ if __name__ == "__main__":
     asyncio.run(visitors_agent_reaches_only_their_dashboard())
     asyncio.run(agent_cannot_claim_a_success_that_did_not_happen())
     asyncio.run(agent_echo_is_not_the_operator())
+    asyncio.run(recognizer_mishears_a_code_word_and_the_readback_still_works())
+    asyncio.run(strict_prompt_while_a_proposal_awaits())
     asyncio.run(break_it_scoreboard())
     asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())

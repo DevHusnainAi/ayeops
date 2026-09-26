@@ -671,7 +671,7 @@ function ReadbackChecks({ gate }: { gate: Gate }) {
   if (!c || !gate.heard) return null;
   const said = gate.heard;
   const rows: [string, boolean][] = [
-    ...(gate.code ?? "").split(" ").map((w): [string, boolean] => [`Code word ${w.toUpperCase()}`, new RegExp(`\\b${w}\\b`, "i").test(said)]),
+    ...(gate.code ?? "").split(" ").map((w): [string, boolean] => [`Code word ${w.toUpperCase()}`, gate.matched ? gate.matched.includes(w) : new RegExp(`\\b${w}\\b`, "i").test(said)]),
     ["Action", c.action_found],
     ["Service", c.service_found],
   ];
