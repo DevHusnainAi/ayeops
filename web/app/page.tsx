@@ -131,13 +131,16 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
               <button
                 type="button"
                 onClick={() => setShowCustom((o) => !o)}
-                className="flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-[13px] text-muted transition-colors hover:border-accent/40 hover:text-ink"
+                className="flex items-center gap-2 rounded-md border border-accent/40 bg-panel px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:border-accent"
               >
                 <ChevronRight aria-hidden size={12} className={`transition-transform ${showCustom ? "rotate-90" : ""}`} />
                 Bring your own incident
               </button>
               {showCustom && (
-                <div className="mt-3 space-y-3 rounded-lg border border-line bg-panel/60 p-4">
+                <form
+                  className="mt-3 space-y-3 rounded-lg border border-line bg-panel/60 p-4"
+                  onSubmit={(e) => { e.preventDefault(); if (scenario) onStart(true, undefined, scenario); }}
+                >
                   <div>
                     <label htmlFor="byoi-svc" className="mb-1 block text-[11.5px] text-muted">Service name</label>
                     <input
@@ -164,7 +167,10 @@ function Welcome({ onStart }: { onStart: (withMic: boolean, autopilot?: boolean,
                     The agent will triage your service as if it broke. Everything else — voice session, readback,
                     authorization — works exactly the same.
                   </p>
-                </div>
+                  <button type="submit" disabled={!scenario} className={`${BTN} px-4 py-2 text-[13px] disabled:opacity-40`}>
+                    Start session with this incident
+                  </button>
+                </form>
               )}
             </div>
 

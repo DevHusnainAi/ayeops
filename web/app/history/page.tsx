@@ -482,7 +482,7 @@ export default function HistoryPage() {
       <div className="flex min-h-0 flex-1">
         {/* sidebar */}
         <aside
-          className={`w-full shrink-0 overflow-y-auto border-r border-line bg-panel lg:flex lg:w-72 ${
+          className={`w-full shrink-0 overflow-y-auto border-r border-line bg-panel lg:flex lg:w-72 lg:flex-col ${
             mobileShowList ? "flex flex-col" : "hidden"
           }`}
         >
