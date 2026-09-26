@@ -23,12 +23,17 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 <p align="center">
 <a href="https://github.com/DevHusnainAi/ayeops/actions/workflows/ci.yml"><img src="https://github.com/DevHusnainAi/ayeops/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0"/></a>
+<img src="https://img.shields.io/badge/scenario_tests-27-2ea44f.svg" alt="27 scenario tests"/>
+<a href="https://ayeops.vexralabs.com"><img src="https://img.shields.io/badge/live_demo-ayeops.vexralabs.com-22e0d8.svg" alt="Live demo"/></a>
 </p>
 
 ---
 
 ## Table of contents
 
+- [Try it in 30 seconds](#try-it-in-30-seconds)
+- [Check the claim yourself](#check-the-claim-yourself)
+- [Why it matters](#why-it-matters)
 - [Quick start](#quick-start)
 - [The problem is not speed](#the-problem-is-not-speed)
 - [What happens in a run](#what-happens-in-a-run)
@@ -38,6 +43,74 @@ Built on the <a href="https://www.assemblyai.com/docs/voice-agents/voice-agent-a
 - [Limitations](#limitations)
 - [Status](#status)
 - [Learn more](#learn-more)
+
+---
+
+## Try it in 30 seconds
+
+**Live:** <https://ayeops.vexralabs.com> — desktop Chrome, headphones on so the microphone does not hear the agent.
+Every session gets its own set of real containers; nothing is simulated on the hosted demo unless the page says so.
+
+1. **Choose the incident** on the start screen: *Bad deploy*, *Hung process* or *Traffic spike*.
+2. Click **Start session** and talk, or **Run the demo for me** to watch the whole thing with no microphone.
+3. The agent pages you and diagnoses on its own. When it proposes a fix, your screen shows a two-word code such
+   as `LIMA CHARLIE`. The model has not been shown it.
+4. Say the action, the service and the code together: *"Roll back auth-service, Lima Charlie."*
+5. Watch the recovery, then ask *"What happened?"* — it answers from the verified record.
+
+**Things worth trying**
+
+| Try this | What happens |
+|---|---|
+| Pick *Hung process*, then ask for a **rollback** | Refused: nothing was deployed, so there is nothing to undo. It proposes a restart. |
+| Pick *Traffic spike*, then ask for a **restart** | Refused: the queue would refill at once. It proposes scaling out. |
+| Pick *Bad deploy*, then ask for a **restart** | Refused, with the commit that broke it. It proposes the rollback. |
+| Read the wrong code, or the right code for the wrong service | Nothing runs; the relay says what did not match. |
+| Open **Demo controls → Poison a log line** | A log line claims the operator already approved. It is ignored. |
+| Open **History** | Every past incident: postmortem, recovery numbers, recording, turn timeline. |
+
+---
+
+## Check the claim yourself
+
+The claim is that the approval code never reaches the language model. It is easy to assert and rarely checked, so
+the repository ships a checker that does not trust the relay's own logs: it reads **AssemblyAI's record of the
+session** (fetched from its Sessions API) and searches everything on the model's side — system prompts and tool
+schemas, every tool call and result, every reply instruction, every agent turn — for the code the operator read back.
+
+```bash
+cd backend
+uv run prove_blind.py --selftest        # the checker fails on a planted leak and passes a clean session
+uv run prove_blind.py incidents/        # run it on any recorded sessions
+```
+
+The only place a code may appear is the operator's own readback turn, after the operator said it. The checker
+found a real exception on its first run: the post-incident record handed to the model for *"what happened?"*
+quoted the authorization, and so the spent code. It could not be replayed, but the claim is only worth making with
+no exceptions, so the record now withholds it, and `spent_code_is_not_refed_to_the_model` fails on the old behaviour.
+Recordings made before that fix (`13664f2`) still show it; newer ones do not.
+
+What this does and does not show: the operator's speech reaches the model as a transcript, as it must — the point is
+that the model never sees a code *before* a human speaks it, cannot produce one, and cannot approve on its own,
+because the relay, not the model, checks the readback and runs the change.
+
+---
+
+## Why it matters
+
+Downtime is expensive, and the tools that shorten it are the ones organisations are slowest to trust with production.
+
+- Over 90% of mid-size and large enterprises put an hour of downtime above **$300,000**, and 41% put it between
+  **$1 million and $5 million** (ITIC 2024 survey of 1,000+ firms —
+  [source](https://itic-corp.com/itic-2024-hourly-cost-of-downtime-report/)).
+- Downtime costs the Global 2000 about **$400 billion a year**, roughly $200 million per company and 9% of profits
+  (Splunk and Oxford Economics, 2024 —
+  [source](https://www.splunk.com/en_us/newsroom/press-releases/2024/conf24-splunk-report-shows-downtime-costs-global-2000-companies-400b-annually.html)).
+  A 2026 update from the same publisher puts the figure at
+  [$600 billion](https://newsroom.cisco.com/c/r/newsroom/en/us/a/y2026/m05/the-600-billion-wake-up-call-new-splunk-research-reveals-downtime-is-a-systemic-business-crisis.html).
+
+An AI that can restart production is an audit finding unless someone can show who authorized the change.
+AyeOps is built to produce that evidence: a human's spoken readback, checked by code, recorded by a third party.
 
 ---
 
