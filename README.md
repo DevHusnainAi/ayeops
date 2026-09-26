@@ -145,7 +145,7 @@ INFRA=docker uv run --env-file .env --with gtts python live_e2e.py  # full live 
 base image looks exactly like a broken cluster.
 
 **Environment:** `INFRA` (sim|docker), `ALLOWED_ORIGINS`, `MAX_SESSION_S`, `MAX_DOCKER_CLUSTERS`,
-`INCIDENT_DIR`, `AAI_URL`.
+`INCIDENT_DIR`, `AAI_URL`, `INCIDENT_MEDIA_PUBLIC` (set to `1` to list and serve session recordings; off by default, because on a public host they are visitors' voices).
 
 ---
 

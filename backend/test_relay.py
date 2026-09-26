@@ -774,6 +774,23 @@ async def authorize(s, ev, poll, spoken):
 
 
 
+async def recordings_are_private_by_default():
+    """A public host must not list or serve visitors' voice recordings and transcripts."""
+    real_dir, real_mem, real_file = relay.INCIDENT_DIR, relay.MEMORY_DIR, relay.MEMORY_FILE
+    relay.INCIDENT_DIR = Path(tempfile.mkdtemp())
+    relay.MEMORY_DIR = Path(tempfile.mkdtemp())
+    relay.MEMORY_FILE = relay.MEMORY_DIR / "incidents.jsonl"
+    try:
+        (relay.INCIDENT_DIR / "sess_x.ogg").write_bytes(b"voice")
+        (relay.INCIDENT_DIR / "sess_x.json").write_text("{}")
+        relay.append_memory({"service": "auth-service", "action": "rollback", "session_id": "sess_x",
+                             "root_cause": "x", "mttr_s": 30, "resolved_at": 1})
+        entry = (await relay.list_incidents())[0]
+        assert entry["recording"] is None and entry["timeline"] is None, entry
+    finally:
+        relay.INCIDENT_DIR, relay.MEMORY_DIR, relay.MEMORY_FILE = real_dir, real_mem, real_file
+
+
 async def spent_code_is_not_refed_to_the_model():
     """Blind Clearance, end to end: from the proposal to the postmortem, no message the relay sends the model ever
     contains the code -- including the resolved-incident prompt, which quotes the authorization record. (The
@@ -947,6 +964,7 @@ if __name__ == "__main__":
     asyncio.run(incident_flow())
     asyncio.run(refusal_and_recovery_deltas())
     asyncio.run(result_ignores_cascading_dependents())
+    asyncio.run(recordings_are_private_by_default())
     asyncio.run(spent_code_is_not_refed_to_the_model())
     asyncio.run(wedged_process_needs_restart())
     asyncio.run(traffic_spike_needs_scale_up())

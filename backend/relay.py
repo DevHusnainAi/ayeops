@@ -41,6 +41,9 @@ AAI_URL = os.environ.get("AAI_URL", "wss://agents.assemblyai.com/v1/ws")
 SESSIONS_URL = AAI_URL.replace("wss://", "https://").removesuffix("/ws") + "/sessions"
 API_KEY = os.environ["ASSEMBLYAI_API_KEY"]
 INFRA = os.environ.get("INFRA", "sim")
+# Recordings are visitors' own voices. On a public host they stay private (postmortems, which carry only the
+# readback words, are still listed); set INCIDENT_MEDIA_PUBLIC=1 on a machine where every recording is yours.
+MEDIA_PUBLIC = os.environ.get("INCIDENT_MEDIA_PUBLIC") == "1"
 ALLOWED_ORIGINS = set(os.environ.get(
     "ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000").split(","))
 MAX_SESSION_S = int(os.environ.get("MAX_SESSION_S", "900"))  # caps spend if the public demo is left open
@@ -1387,8 +1390,8 @@ async def list_incidents():
         out.append({
             **entry,
             "postmortem": md.read_text() if md.is_file() else None,
-            "recording": f"/incidents/{sid}.ogg" if (INCIDENT_DIR / f"{sid}.ogg").is_file() else None,
-            "timeline": f"/incidents/{sid}.json" if (INCIDENT_DIR / f"{sid}.json").is_file() else None,
+            "recording": f"/incidents/{sid}.ogg" if MEDIA_PUBLIC and (INCIDENT_DIR / f"{sid}.ogg").is_file() else None,
+            "timeline": f"/incidents/{sid}.json" if MEDIA_PUBLIC and (INCIDENT_DIR / f"{sid}.json").is_file() else None,
         })
     return out
 
@@ -1472,7 +1475,8 @@ async def analytics():
 # Mounted before the catch-all "/" below: Starlette matches mounts in registration order, and a root mount
 # would otherwise shadow every path under it, including this one.
 INCIDENT_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/incidents", StaticFiles(directory=INCIDENT_DIR), name="incidents")
+if MEDIA_PUBLIC:
+    app.mount("/incidents", StaticFiles(directory=INCIDENT_DIR), name="incidents")
 
 WEB_DIR = Path(__file__).parent.parent / "web" / "out"
 if WEB_DIR.is_dir():  # the exported dashboard: same origin as /ws, so one URL, and HTTPS covers the mic too
