@@ -126,7 +126,7 @@ async def incident_flow():
     report = (relay.INCIDENT_DIR / "s1.md").read_text()
     assert f'code "{code}"' in report and "v2.14.1 to v2.14.0" in report, report
     said = [m["instructions"] for m in sent(s.up, "reply.create")] + s.say_queue
-    outcome = next(i for i, x in enumerate(said) if "finished with status success" in x)
+    outcome = next(i for i, x in enumerate(said) if "rollback of auth-service succeeded" in x)
     assert outcome < next(i for i, x in enumerate(said) if "postmortem" in x), said
 
     # tool.result waits while the agent is speaking.

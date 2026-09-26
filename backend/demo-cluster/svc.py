@@ -60,9 +60,17 @@ def billing():
         else:
             queue["depth"] -= min(queue["depth"], 10 * workers)
             if queue["depth"] > BACKLOG:
-                log_sometimes(f"ERROR consumer lag {queue['depth'] // 50}s: queue depth {queue['depth']}; arrivals "
-                              f"{20 * RATE} jobs/s exceed what {workers} worker(s) drain ({100 * workers}/s)")
+                if 20 * RATE > 100 * workers:  # arrivals outrun the workers: a real backlog
+                    log_sometimes(f"ERROR consumer lag {queue['depth'] // 50}s: queue depth {queue['depth']}; arrivals "
+                                  f"{20 * RATE} jobs/s exceed what {workers} worker(s) drain ({100 * workers}/s)")
+                else:  # a leftover queue, already draining
+                    log_sometimes(f"INFO draining backlog: queue depth {queue['depth']}, "
+                                  f"{100 * workers - 20 * RATE} jobs/s faster than arrivals")
         time.sleep(0.1)
+
+
+def workers_now():
+    return int(os.environ.get("WORKERS", "1"))
 
 
 def wedge_noise():
@@ -110,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                     "p99_ms": round(lat[-1]) if lat else 0}  # ponytail: max of ~20 samples stands in for p99
             if ROLE == "billing":
                 body["queue_depth"] = queue["depth"]
-                if queue["depth"] > BACKLOG:
+                if queue["depth"] > BACKLOG and 20 * RATE > 100 * workers_now():  # only while it is still growing
                     body["error_rate"] = max(body["error_rate"], 0.5)
                     body["p99_ms"] = max(body["p99_ms"], queue["depth"] * 20)
             if wedged.is_set():

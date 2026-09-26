@@ -464,6 +464,15 @@ def action_items(kind, service, evidence, error_line=None):
     ]
 
 
+# The first preventive step, worded to be heard: the written report carries the commit and the file, which do not
+# survive being read aloud.
+SPOKEN_PREVENTION = {
+    "deploy": "fix the change behind this deploy, restore the check it removed, and add a regression test",
+    "wedge": "bound and time out the connection pool, and fix the leak that exhausts it",
+    "spike": "autoscale the worker pool on queue depth",
+}
+
+
 def precedent_for(service, kind="deploy"):
     """The most recent past incident of this kind on this service, if any -- what open_incident() pages the operator
     with. Kind matters: a wedged process that a rollback "fixed" last time is not a precedent for a bad deploy, and
@@ -651,7 +660,8 @@ class Session:
         if self.progress_note and self.idle(during_tool=True):
             note, self.progress_note = self.progress_note, None
             self.expect_reply = True
-            await self.send_up({"type": "reply.create", "instructions": f"In under eight words, tell the operator: {note}."})
+            spoken = re.sub(r" from v[\d.]+.*$", "", note)  # no version numbers read aloud
+            await self.send_up({"type": "reply.create", "instructions": f'Say exactly this and nothing else: "{spoken}."'})
 
     # ---- browser side ----
 
@@ -879,10 +889,9 @@ class Session:
         await self.send_up({"type": "session.update",
                             "session": {"system_prompt": self._system_prompt() + RESOLVED_PROMPT + self.timeline_text(),
                                         "tools": READ_TOOLS}})
-        first = action_items(self.cluster.fault_kind, (self.last_change or {}).get("service") or "the service",
-                             (self.last_change or {}).get("evidence"), (self.scenario or {}).get("errorLine"))[0][2]
-        await self.say("In two short sentences: tell the operator the postmortem with the voice authorization record "
-                       f"is filed, then name the first step to prevent a repeat: {first}.")
+        step = SPOKEN_PREVENTION.get(self.cluster.fault_kind, SPOKEN_PREVENTION["deploy"])
+        await self.say('Say exactly this and nothing else: "The postmortem with the voice authorization record is '
+                       f'filed. To prevent a repeat: {step}."')
 
     def timeline_text(self):
         """The verified record the agent answers "what happened?" from. Authorization entries quote the operator's
@@ -1056,6 +1065,8 @@ class Session:
             self.last_turn_event, self.agent_speaking, self.expect_reply = t, True, False
         elif t == "input.speech.started":
             self.last_turn_event, self.expect_reply = t, False
+            if self.pending and not self.gate_mode:  # they are about to answer the proposal: no re-explaining
+                await self.set_gate_mode(True)
         elif t == "input.speech.stopped":
             # The server emits this together with the reply, not when speech ends, so latency is
             # measured from the operator's last voiced frame instead.
@@ -1412,7 +1423,9 @@ class Session:
                 self.try_speak_readback(p)
             return
         self.pending = None  # one code = one execution
-        await self.set_gate_mode(False)  # before execute() asks the model to report the outcome
+        # The strict prompt stays on through execution: the model's reply to the readback itself starts at this very
+        # moment, and restoring the working prompt here let it re-explain the whole proposal after the change was
+        # authorized (seen live). Everything the relay says from here on is scripted word for word.
         bump("authorized")
         self.mark("gate", f'authorized by the operator reading back "{p["said"]}" '
                   f'(confidence: {scoring["code_score"]:.0%})')
@@ -1469,8 +1482,8 @@ class Session:
         self.mark("outcome", f"{action} {service}: {result['status']}")
         states = ", ".join(f"{n} {v['status']}" for n, v in result.get("services", {}).items())
         # Queued while still executing, so the incident can't resolve (and file its postmortem) before this is said.
-        await self.say(f"Report to the operator in one sentence: the {action} of {service} finished with status "
-                       f"{result['status']}; {states}.")
+        verdict = {"success": "succeeded", "no_improvement": "did not improve things", "failed": "failed"}.get(result["status"], result["status"])
+        await self.say(f'Say exactly this and nothing else: "The {action.replace("_", " ")} of {service} {verdict}. {states}."')
         self.executing = False
         await self.emit({"type": "relay.gate", "state": "done", "service": service, "action": action, "result": result})
 
