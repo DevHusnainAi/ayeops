@@ -785,8 +785,14 @@ class Session:
         await self.say("In one short sentence, tell the operator the postmortem with the voice authorization record is filed.")
 
     def timeline_text(self):
-        return "\n".join(f"{hms(ts)} {kind}: {text}" for ts, kind, text in self.timeline
-                         if kind not in ("operator", "agent"))[-4000:]
+        """The verified record the agent answers "what happened?" from. Authorization entries quote the operator's
+        readback, and so the code -- a spent code, but the model has no need for it and the claim is stronger if it
+        never sees one at all -- so anything in quotes on those lines is withheld. The postmortem file keeps it."""
+        def line(ts, kind, text):
+            if kind in ("gate", "change", "agent-request"):
+                text = re.sub(r'"[^"]*"', '"[withheld]"', text)
+            return f"{hms(ts)} {kind}: {text}"
+        return "\n".join(line(*e) for e in self.timeline if e[1] not in ("operator", "agent"))[-4000:]
 
     def postmortem(self, mttr, recovery):
         changes = [text for _, kind, text in self.timeline if kind == "change"]

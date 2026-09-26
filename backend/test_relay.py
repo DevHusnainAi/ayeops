@@ -14,6 +14,7 @@ os.environ["INFRA"] = "sim"
 import websockets  # noqa: E402
 
 import cluster  # noqa: E402
+import prove_blind  # noqa: E402
 import relay  # noqa: E402
 
 cluster.ROLLOUT_S = cluster.CASCADE_S = 0
@@ -772,6 +773,22 @@ async def authorize(s, ev, poll, spoken):
     await poll()
 
 
+
+async def spent_code_is_not_refed_to_the_model():
+    """Blind Clearance, end to end: from the proposal to the postmortem, no message the relay sends the model ever
+    contains the code -- including the resolved-incident prompt, which quotes the authorization record. (The
+    operator's own speech reaches the model only as their transcript, which is not a relay message.)"""
+    s, ev, poll = await one_incident("deploy")
+    await s.run_tool("propose_remediation", AUTH_ROLLBACK)
+    code = s.pending["code"]
+    await authorize(s, ev, poll, "Roll back auth-service")
+    assert s.phase == "resolved"
+    resolved = [m for m in sent(s.up, "session.update") if "system_prompt" in m["session"]][-1]["session"]["system_prompt"]
+    assert "authorized" in resolved and "[withheld]" in resolved, "the record is still there, just without the code"
+    everything = json.dumps(s.up.sent)
+    assert not prove_blind.has(everything, code), f"the code {code!r} reached the model"
+
+
 async def wedged_process_needs_restart():
     """Same symptom as the bad deploy, opposite fix: nothing was deployed, so a rollback has nothing to undo and the
     relay says so; the restart it steers to is authorized, runs, and is remembered as a wedge -- not a deploy."""
@@ -930,6 +947,7 @@ if __name__ == "__main__":
     asyncio.run(incident_flow())
     asyncio.run(refusal_and_recovery_deltas())
     asyncio.run(result_ignores_cascading_dependents())
+    asyncio.run(spent_code_is_not_refed_to_the_model())
     asyncio.run(wedged_process_needs_restart())
     asyncio.run(traffic_spike_needs_scale_up())
     asyncio.run(precedent_matches_the_kind_of_fault())
