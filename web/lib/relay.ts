@@ -331,8 +331,10 @@ type Audio = {
   out?: GainNode;
   analyser?: AnalyserNode;
   stream?: MediaStream;
-  sources: Set<AudioBufferSourceNode>;
+  sources: Set<AudioBufferSourceNode>;          // agent speech -- cancelled by barge-in
+  opSources: Set<AudioBufferSourceNode>;        // the operator's own readback (autopilot) -- never cancelled
   playhead: number;
+  opPlayhead: number;
   micLevel: number;
   ptt?: boolean; // mirrors state.ptt for the audio callback
   talkUntil?: number; // performance.now() until which mic frames still go out after a release
@@ -355,7 +357,7 @@ async function likelyHeadset(): Promise<boolean> {
 
 export function useRelay() {
   const [state, dispatch] = useReducer(reduce, initial);
-  const a = useRef<Audio>({ sources: new Set(), playhead: 0, micLevel: 0, opened: false });
+  const a = useRef<Audio>({ sources: new Set(), opSources: new Set(), playhead: 0, opPlayhead: 0, micLevel: 0, opened: false });
 
   const flush = useCallback(() => {
     // Barge-in: drop queued agent audio so the operator never hears stale speech.
@@ -365,7 +367,11 @@ export function useRelay() {
     r.playhead = 0;
   }, []);
 
-  const play = useCallback((b64: string) => {
+  // `operator` is autopilot's readback -- the operator's own voice. It shares the output node with the agent
+  // but not the source set: barge-in flushes agent speech, and flushing the operator's readback with it left
+  // the demo silent at the one moment that matters (the relay streams that audio upstream as well, so
+  // AssemblyAI fires input.speech.started the instant it starts, cancelling the very clip that caused it).
+  const play = useCallback((b64: string, operator = false) => {
     const r = a.current;
     if (!r.playCtx || !r.out) return;
     const bin = atob(b64);
@@ -380,11 +386,14 @@ export function useRelay() {
     const src = r.playCtx.createBufferSource();
     src.buffer = buf;
     src.connect(r.out);
-    const at = Math.max(r.playCtx.currentTime + 0.03, r.playhead); // back to back; the small lead absorbs jitter
+    const lane = operator ? r.opSources : r.sources;
+    const head = operator ? r.opPlayhead : r.playhead;
+    const at = Math.max(r.playCtx.currentTime + 0.03, head); // back to back; the small lead absorbs jitter
     src.start(at);
-    r.playhead = at + buf.duration;
-    r.sources.add(src);
-    src.onended = () => r.sources.delete(src);
+    if (operator) r.opPlayhead = at + buf.duration;
+    else r.playhead = at + buf.duration;
+    lane.add(src);
+    src.onended = () => lane.delete(src);
   }, []);
 
   const start = useCallback(async (withMic: boolean, autopilot = false, scenario: CustomScenario = null, fault: Fault = "deploy") => {
@@ -465,7 +474,8 @@ export function useRelay() {
     };
     ws.onmessage = (m) => {
       const ev = JSON.parse(m.data);
-      if (ev.type === "reply.audio" || ev.type === "autopilot.audio") return play(ev.data);
+      if (ev.type === "reply.audio") return play(ev.data);
+      if (ev.type === "autopilot.audio") return play(ev.data, true);
       // The relay saw the agent's own voice come back through the microphone: switch to hold-to-talk.
       if (ev.type === "relay.echo") { r.ptt = true; dispatch({ kind: "ptt", on: true }); }
       if (ev.type === "input.speech.started" || (ev.type === "reply.done" && ev.status === "interrupted")) flush();

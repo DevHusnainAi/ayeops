@@ -387,13 +387,15 @@ function DetailPanel({ entry }: { entry: IncidentEntry }) {
       )}
 
       {tab === "postmortem" && pm && (
-        <div className="rounded border border-line bg-panel p-5">
+        <div className="overflow-hidden rounded border border-line bg-panel p-5">
           <div className="pm-report text-[13px] text-ink leading-relaxed
             [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:text-ink [&_h1]:mb-3
             [&_h2]:text-[13px] [&_h2]:font-semibold [&_h2]:text-muted [&_h2]:uppercase [&_h2]:tracking-wide [&_h2]:mt-5 [&_h2]:mb-2
             [&_p]:mb-2
             [&_strong]:text-ink
             [&_code]:font-mono [&_code]:text-[12px] [&_code]:bg-board [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-accent
+            [&_pre]:bg-board [&_pre]:border [&_pre]:border-line [&_pre]:rounded [&_pre]:p-3 [&_pre]:my-2.5 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words
+            [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11.5px] [&_pre_code]:text-ink/80 [&_pre_code]:whitespace-pre-wrap [&_pre_code]:break-words
             [&_table]:w-full [&_table]:text-left [&_table]:text-[12.5px] [&_table]:font-mono [&_table]:mt-2
             [&_thead]:border-b [&_thead]:border-line/40
             [&_th]:pb-2 [&_th]:pr-4 [&_th]:text-[11px] [&_th]:text-muted [&_th]:uppercase [&_th]:tracking-wide [&_th]:font-medium
