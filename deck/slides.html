@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>AyeOps — AssemblyAI Voice Agent Hackathon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Martian+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --board:#0a0b0d; --panel:#121417; --panel2:#171a1e; --line:#23262b; --line2:#34383f;
+    --ink:#eef0f2; --muted:#8b929c; --muted2:#5a6069; --accent:#22e0d8; --healthy:#34d399; --warn:#f5a623;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#000}
+  body{font-family:"Instrument Sans",system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+  .slide{
+    width:1920px;height:1080px;background:var(--board);position:relative;overflow:hidden;
+    padding:96px 112px;display:flex;flex-direction:column;page-break-after:always;
+  }
+  .slide::after{ /* the cyan edge that runs through the whole brand */
+    content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--accent);
+  }
+  .eyebrow{font-family:"Martian Mono",monospace;font-size:19px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  .eyebrow b{color:var(--accent);font-weight:600}
+  h1{font-size:112px;line-height:1.02;letter-spacing:-.025em;font-weight:700;margin-top:28px;max-width:26ch}
+  h2{font-size:62px;line-height:1.08;letter-spacing:-.02em;font-weight:700;margin-top:22px;max-width:24ch}
+  .lede{font-size:31px;line-height:1.5;color:var(--muted);margin-top:28px;max-width:46ch}
+  .foot{position:absolute;left:112px;right:112px;bottom:56px;display:flex;justify-content:space-between;
+        font-family:"Martian Mono",monospace;font-size:17px;color:var(--muted2);letter-spacing:.1em;text-transform:uppercase}
+  .grid{display:grid;gap:28px;margin-top:auto;margin-bottom:56px}
+  .g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px 34px 30px}
+  .card .k{font-family:"Martian Mono",monospace;font-size:16px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .card .v{font-size:58px;font-weight:700;margin-top:12px;letter-spacing:-.02em}
+  .card .d{font-size:22px;line-height:1.45;color:var(--muted);margin-top:12px}
+  .accent{color:var(--accent)} .ok{color:var(--healthy)} .warn{color:var(--warn)}
+  .mono{font-family:"Martian Mono",monospace}
+  table{width:100%;border-collapse:collapse;margin-top:36px;font-size:25px}
+  th{text-align:left;font-family:"Martian Mono",monospace;font-size:16px;letter-spacing:.14em;text-transform:uppercase;
+     color:var(--muted);padding-bottom:18px;border-bottom:1px solid var(--line)}
+  td{padding:22px 0;border-bottom:1px solid var(--line);color:var(--ink);vertical-align:top}
+  td.m{color:var(--muted)}
+  .pill{display:inline-block;font-family:"Martian Mono",monospace;font-size:34px;letter-spacing:.08em;
+        border:2px solid var(--accent);color:var(--accent);border-radius:12px;padding:14px 26px}
+  .bars{display:flex;gap:14px;align-items:center;margin-top:18px}
+  .bar{height:46px;border-radius:8px;background:var(--line);flex:1}
+  .quote{font-size:30px;line-height:1.5;color:var(--ink);border-left:3px solid var(--line2);padding-left:30px;margin-top:30px;max-width:52ch}
+  .quote cite{display:block;font-style:normal;font-size:20px;color:var(--muted2);margin-top:16px;font-family:"Martian Mono",monospace}
+  ul{margin-top:26px;list-style:none} li{font-size:27px;line-height:1.5;color:var(--muted);margin-bottom:18px;padding-left:34px;position:relative;max-width:50ch}
+  li::before{content:"";position:absolute;left:0;top:14px;width:16px;height:2px;background:var(--accent)}
+  li b{color:var(--ink);font-weight:600}
+  @page{size:1920px 1080px;margin:0}
+</style>
+</head>
+<body>
+
+<!-- 1 · title -->
+<section class="slide">
+  <p class="eyebrow">AssemblyAI Voice Agent Hackathon · <b>AyeOps</b></p>
+  <h1>No AI touches production without a human&rsquo;s informed voice.</h1>
+  <p class="lede">An incident commander that diagnoses on its own, then refuses to change anything until a
+     human reads back a code the model was never shown.</p>
+  <div class="foot"><span>ayeops.vexralabs.com</span><span>01 / 09</span></div>
+</section>
+
+<!-- 2 · problem -->
+<section class="slide">
+  <p class="eyebrow">01 · The problem</p>
+  <h2>Downtime is expensive. Trust is the bottleneck.</h2>
+  <div class="grid g3">
+    <div class="card"><p class="k">Per hour of downtime</p><p class="v">&gt;$300k</p>
+      <p class="d">for over 90% of mid-size and large enterprises. 41% put it above $1M. <span class="mono">ITIC 2024</span></p></div>
+    <div class="card"><p class="k">Global 2000, per year</p><p class="v">$400B</p>
+      <p class="d">about $200M per company, 9% of profits. <span class="mono">Splunk / Oxford Economics 2024</span></p></div>
+    <div class="card"><p class="k">The blocker</p><p class="v accent">Approval</p>
+      <p class="d">An AI that can restart production is an audit finding unless you can show who authorized it.</p></div>
+  </div>
+  <div class="foot"><span>AyeOps</span><span>02 / 09</span></div>
+</section>
+
+<!-- 3 · how it works -->
+<section class="slide">
+  <p class="eyebrow">02 · How it works</p>
+  <h2>Two contexts. They do not contain the same information.</h2>
+  <div class="grid g2">
+    <div class="card">
+      <p class="k">Your screen</p>
+      <p style="margin-top:22px"><span class="pill">HOTEL</span> &nbsp; <span class="pill">ALPHA</span></p>
+      <p class="d" style="margin-top:22px">Say the action, the service and the code together:<br>
+        <span class="mono accent">&ldquo;Roll back auth-service, Hotel Alpha.&rdquo;</span></p>
+    </div>
+    <div class="card">
+      <p class="k">Model context</p>
+      <div class="bars"><span class="bar"></span><span class="bar"></span></div>
+      <p class="d" style="margin-top:22px">Withheld. The agent cannot say this code, cannot guess it,
+        and cannot act without it. The relay checks the readback and runs the change &mdash; not the model.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Blind &middot; Voiced &middot; Refuses &middot; Logged</span><span>03 / 09</span></div>
+</section>
+
+<!-- 4 · the gate -->
+<section class="slide">
+  <p class="eyebrow">03 · The gate</p>
+  <h2>A code alone never authorizes.</h2>
+  <p class="lede">The operator must say the action, the service and the code together. Reading two words off a
+     screen is not the same as understanding the change.</p>
+  <div class="grid g4">
+    <div class="card"><p class="k">Blind</p><p class="d">The code never enters the model&rsquo;s context.</p></div>
+    <div class="card"><p class="k">Voiced</p><p class="d">A human proves comprehension out loud.</p></div>
+    <div class="card"><p class="k">Refuses</p><p class="d">Declines a fix it knows will not hold, and says why.</p></div>
+    <div class="card"><p class="k">Logged</p><p class="d">Recording, turn timeline and postmortem per authorization.</p></div>
+  </div>
+  <div class="foot"><span>AyeOps</span><span>04 / 09</span></div>
+</section>
+
+<!-- 5 · proof -->
+<section class="slide">
+  <p class="eyebrow">04 · Proof</p>
+  <h2>The claim is checkable against a third party.</h2>
+  <p class="lede">A checker reads <b style="color:var(--ink)">AssemblyAI&rsquo;s own record</b> of every session &mdash;
+     prompts, tool schemas, calls, results, agent turns &mdash; and searches for the code the operator spoke.</p>
+  <div class="grid g3">
+    <div class="card"><p class="k">Since the fix</p><p class="v ok">0</p><p class="d">occurrences on the model&rsquo;s side. 6 sessions, 100 turns searched.</p></div>
+    <div class="card"><p class="k">Before the fix</p><p class="v warn">3</p><p class="d">a real leak the checker caught: the post-incident summary quoted the spent code.</p></div>
+    <div class="card"><p class="k">Run it yourself</p><p class="v mono" style="font-size:30px;line-height:1.4">ayeops-prove<br>--selftest</p><p class="d">The checker fails on a planted leak and passes a clean session.</p></div>
+  </div>
+  <div class="foot"><span>ayeops.vexralabs.com/proof</span><span>05 / 09</span></div>
+</section>
+
+<!-- 6 · measured -->
+<section class="slide">
+  <p class="eyebrow">05 · Measured</p>
+  <h2>Real containers, real crash loops, real recovery.</h2>
+  <table>
+    <tr><th>Metric</th><th>Result</th><th>Method</th></tr>
+    <tr><td>Bad deploy &rarr; all green</td><td class="mono accent">29 s</td><td class="m">detection to healthy, wall clock</td></tr>
+    <tr><td>Turn latency</td><td class="mono accent">0.84&ndash;1.09 s</td><td class="m">from the operator&rsquo;s last voiced frame</td></tr>
+    <tr><td>Recovery from a cut link</td><td class="mono accent">1.8 s</td><td class="m">context intact</td></tr>
+    <tr><td>Scenario tests</td><td class="mono accent">39 / 199 assertions</td><td class="m">green in CI on every push</td></tr>
+  </table>
+  <div class="foot"><span>Not a simulator: three containers per session</span><span>06 / 09</span></div>
+</section>
+
+<!-- 7 · business -->
+<section class="slide">
+  <p class="eyebrow">06 · Business</p>
+  <h2>Sold as the control that makes an agent approvable.</h2>
+  <div class="grid g3">
+    <div class="card"><p class="k">Buyer</p><p class="d" style="margin-top:18px">Platform and SRE teams already running agents against infrastructure, in regulated industries where every production change needs an auditable approver.</p></div>
+    <div class="card"><p class="k">Model</p><p class="d" style="margin-top:18px">Per-seat for on-call engineers, plus a fee per authorization. The audit bundle is the product: who authorized what, when, and how.</p></div>
+    <div class="card"><p class="k">Wedge</p><p class="d" style="margin-top:18px">Autonomous remediation is blocked at security review, not at capability. We sell the thing that gets it past review.</p></div>
+  </div>
+  <div class="foot"><span>AyeOps</span><span>07 / 09</span></div>
+</section>
+
+<!-- 8 · competition -->
+<section class="slide">
+  <p class="eyebrow">07 · Competition</p>
+  <h2>Nine voice incident commanders. All compete on speed.</h2>
+  <div class="quote">
+    &ldquo;Destructive mutations require explicit TTL-bounded, single-use tokens.
+    <b style="color:var(--ink)">Spoken keywords never authorize execution.</b>&rdquo;
+    <cite>— the strongest competing entry, from its own deck</cite>
+  </div>
+  <ul>
+    <li>It removed the language model, and its Kubernetes cluster is an <b>in-memory simulator</b>.</li>
+    <li>We took the opposite position: <b>a human&rsquo;s voice is the only thing that authorizes</b>.</li>
+    <li>And unlike a speed claim, ours is <b>verifiable by a third party</b>, not measured by us.</li>
+  </ul>
+  <div class="foot"><span>Read from their public repositories and decks</span><span>08 / 09</span></div>
+</section>
+
+<!-- 9 · roadmap -->
+<section class="slide">
+  <p class="eyebrow">08 · Roadmap</p>
+  <h2>The cluster adapter is 127 lines. Kubernetes is next.</h2>
+  <div class="grid g3">
+    <div class="card"><p class="k">Next</p><p class="d" style="margin-top:18px">Kubernetes and Argo adapters &mdash; rollback maps to <span class="mono">rollout undo</span>, restart to <span class="mono">rollout restart</span>, scale to <span class="mono">scale</span>.</p></div>
+    <div class="card"><p class="k">Then</p><p class="d" style="margin-top:18px">SSO, audit export to the change-management system, and an on-prem relay so the recording never leaves the customer.</p></div>
+    <div class="card"><p class="k">Today</p><p class="d" style="margin-top:18px">Live, open source, and checkable.<br><span class="mono accent">ayeops.vexralabs.com</span></p></div>
+  </div>
+  <div class="foot"><span>No AI touches production without a human&rsquo;s informed voice.</span><span>09 / 09</span></div>
+</section>
+
+</body>
+</html>
